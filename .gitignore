@@ -1,0 +1,84 @@
+# =============== #
+# Unity generated #
+# =============== #
+
+[Ll]ibrary/
+[Tt]emp/
+[Oo]bj/
+[Bb]uild/
+[Bb]uilds/
+[Ll]ogs/
+[Uu]ser[Ss]ettings/
+[Mm]emoryCaptures/
+[Rr]ecordings/
+
+# Asset meta data should only be ignored when the asset itself is ignored
+# !/[Aa]ssets/**/*.meta
+# !/[Pp]ackages/**/*.meta
+
+# ============== #
+# Addressables   #
+# ============== #
+[Aa]ssets/AddressableAssetsData/*/*.bin*
+
+# ============== #
+# Visual Studio  #
+# ============== #
+
+.vs/
+*.csproj
+*.unityproj
+*.sln
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# ============== #
+# JetBrains Rider#
+# ============== #
+
+.idea/
+*.sln.iml
+
+# ============== #
+# VS Code        #
+# ============== #
+
+.vscode/
+
+# ============== #
+# OS generated   #
+# ============== #
+
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============== #
+# Unity auto-generated solution files
+# ============== #
+
+ExportedObj/
+.consulo/
+.gradle/
+
+# ============== #
+# Crash Reports  #
+# ============== #
+
+sysinfo.txt
+
+# ============== #
+# Packages       #
+# ============== #
+# Keep manifest and lock files tracked
+# Ignore package cache if present
+[Pp]ackages/com.unity.collab-proxy/
