@@ -576,7 +576,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: fe3400febc4cc6d47a393d73346512eb, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::WeaponHitbox
-  damage: 10
+  fallbackDamage: 10
   targetLayers:
     serializedVersion: 2
     m_Bits: 4294967295
@@ -1056,6 +1056,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 1212209991}
+  - component: {fileID: 1212209992}
   m_Layer: 0
   m_Name: sword
   m_TagString: Untagged
@@ -1079,6 +1080,24 @@ Transform:
   - {fileID: 372212171}
   m_Father: {fileID: 616705407}
   m_LocalEulerAnglesHint: {x: 2.952, y: 168.831, z: 89.558}
+--- !u!114 &1212209992
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 1212209990}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 96f838c8e63d84146a30b86a0ae187a0, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::test_sword
+  weaponHitbox: {fileID: 372212172}
+  weaponId: test_sword
+  grade: 0
+  attackDamage: 10
+  maxComboCount: 4
+  comboInputWindow: 0.75
 --- !u!1 &1287427242
 GameObject:
   m_ObjectHideFlags: 0
@@ -1469,10 +1488,10 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::Player_Animation
   animator: {fileID: 1366653240}
   playerMovement: {fileID: 1366653241}
-  playerInput: {fileID: 0}
+  playerAttack: {fileID: 0}
   blendParameterName: speed
   blendDampTime: 0.1
-  attackTriggerName: Attack
+  attackTransitionDuration: 0.05
   attackStateTag: Attack
 --- !u!114 &1366653247
 MonoBehaviour:
@@ -1486,7 +1505,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: cb8c286c69facbc41949ab92946537d8, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::Player_Attack
-  weaponHitbox: {fileID: 372212172}
+  playerInput: {fileID: 0}
+  startingWeaponId: test_sword
 --- !u!1 &1565052046
 GameObject:
   m_ObjectHideFlags: 0

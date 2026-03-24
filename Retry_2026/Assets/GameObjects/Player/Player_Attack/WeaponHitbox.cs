@@ -4,7 +4,7 @@ using UnityEngine;
 [RequireComponent(typeof(Collider))]
 public class WeaponHitbox : MonoBehaviour
 {
-    [SerializeField] private int damage = 10;
+    [SerializeField] private int fallbackDamage = 10;
     [SerializeField] private LayerMask targetLayers = ~0;
     [SerializeField] private Collider hitboxCollider;
 
@@ -81,6 +81,7 @@ public class WeaponHitbox : MonoBehaviour
             return;
         }
 
+        int damage = owner != null && owner.CurrentAttackDamage > 0 ? owner.CurrentAttackDamage : fallbackDamage;
         damageable.TakeDamage(damage, owner != null ? owner.gameObject : gameObject);
         hitTargets.Add(other);
     }

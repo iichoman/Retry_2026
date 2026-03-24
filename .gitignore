@@ -29,6 +29,7 @@
 *.csproj
 *.unityproj
 *.sln
+*.slnx
 *.suo
 *.tmp
 *.user
@@ -54,6 +55,10 @@
 
 .vscode/
 
+.appdata/
+.dotnet/
+.dotnet-home/
+.localappdata/
 # ============== #
 # OS generated   #
 # ============== #
