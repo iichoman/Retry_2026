@@ -61,22 +61,22 @@ public class WeaponHitbox : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
-        if (!canHit)
+        if (!canHit)    // 공격중이 아니면 return
         {
             return;
         }
 
-        if ((targetLayers.value & (1 << other.gameObject.layer)) == 0)
+        if ((targetLayers.value & (1 << other.gameObject.layer)) == 0)      //레이어가 다르면 return
         {
             return;
         }
 
-        if (hitTargets.Contains(other))
+        if (hitTargets.Contains(other))     //이미 맞았다면 return
         {
             return;
         }
 
-        if (!other.TryGetComponent<IDamageable>(out var damageable))
+        if (!other.TryGetComponent<IDamageable>(out var damageable))    // 데미지입는 객체 아니면 return
         {
             return;
         }
@@ -84,5 +84,7 @@ public class WeaponHitbox : MonoBehaviour
         int damage = owner != null && owner.CurrentAttackDamage > 0 ? owner.CurrentAttackDamage : fallbackDamage;
         damageable.TakeDamage(damage, owner != null ? owner.gameObject : gameObject);
         hitTargets.Add(other);
+
+        Debug.Log($"Weapon hit: name={other.gameObject.name}, id={other.GetInstanceID()}", other);
     }
 }
