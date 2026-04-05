@@ -19,7 +19,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
     public int minimumLayoutInset = 2;
 
     [Header("Corridors")]
-    public int corridorWidth = 3;
+    public int corridorWidth = 10;
 
     [Header("Start Rooms")]
     public int startRoomEdgeMargin = 10;
