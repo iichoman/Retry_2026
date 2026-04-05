@@ -117,6 +117,36 @@ public class Player_Attack : MonoBehaviour
         equippedWeapon.OnAttackWindowClosed(ActiveAnimationComboIndex);
     }
 
+    public void AnimEvent_ComboWindowOpen()
+    {
+        if (equippedWeapon == null || ActiveAnimationComboIndex <= 0)
+        {
+            return;
+        }
+
+        equippedWeapon.OnComboWindowOpened(ActiveAnimationComboIndex);
+    }
+
+    public void AnimEvent_ComboCommit()
+    {
+        if (equippedWeapon == null || ActiveAnimationComboIndex <= 0)
+        {
+            return;
+        }
+
+        equippedWeapon.OnComboWindowCommitted(ActiveAnimationComboIndex);
+    }
+
+    public void AnimEvent_ComboWindowClose()
+    {
+        if (equippedWeapon == null || ActiveAnimationComboIndex <= 0)
+        {
+            return;
+        }
+
+        equippedWeapon.OnComboWindowClosed(ActiveAnimationComboIndex);
+    }
+
     private void OnDisable()
     {
         previousAttackInput = false;

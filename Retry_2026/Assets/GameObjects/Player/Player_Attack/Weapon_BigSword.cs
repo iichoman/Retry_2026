@@ -44,6 +44,18 @@ public abstract class Weapon_BigSword : MonoBehaviour, IPlayerWeapon
     {
     }
 
+    public virtual void OnComboWindowOpened(int comboIndex)
+    {
+    }
+
+    public virtual void OnComboWindowCommitted(int comboIndex)
+    {
+    }
+
+    public virtual void OnComboWindowClosed(int comboIndex)
+    {
+    }
+
     public virtual void CancelAttack()
     {
     }

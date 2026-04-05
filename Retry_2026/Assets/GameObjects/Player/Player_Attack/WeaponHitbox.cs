@@ -8,7 +8,7 @@ public class WeaponHitbox : MonoBehaviour
     [SerializeField] private LayerMask targetLayers = ~0;
     [SerializeField] private Collider hitboxCollider;
 
-    private readonly HashSet<Collider> hitTargets = new HashSet<Collider>();
+    private readonly HashSet<Collider> hitTargets = new HashSet<Collider>();    // 중복공격 방지 해시셋
     private Player_Attack owner;
     private bool canHit;
 
@@ -66,7 +66,7 @@ public class WeaponHitbox : MonoBehaviour
             return;
         }
 
-        if ((targetLayers.value & (1 << other.gameObject.layer)) == 0)      //레이어가 다르면 return
+        if ((targetLayers.value & (1 << other.gameObject.layer)) == 0)      //레이어 해당하지 않으면 return
         {
             return;
         }

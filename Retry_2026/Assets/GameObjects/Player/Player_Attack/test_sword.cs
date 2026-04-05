@@ -12,7 +12,7 @@ public class test_sword : Weapon_Sword
 
     [Header("Sword Settings")]
     [SerializeField, Min(1)] private int maxComboCount = 4;
-    [SerializeField, Min(0.05f)] private float comboInputWindow = 0.75f;
+    [SerializeField, Min(0.05f)] private float comboInputWindow = 1.0f;
 
     public override string WeaponId => weaponId;
     public override WeaponGrade Grade => grade;

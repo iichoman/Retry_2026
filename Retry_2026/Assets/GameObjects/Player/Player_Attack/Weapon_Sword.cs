@@ -5,8 +5,10 @@ public abstract class Weapon_Sword : MonoBehaviour, IPlayerWeapon
 {
     [Header("References")]
     [SerializeField] private WeaponHitbox weaponHitbox;
+    [SerializeField] private string attackStateMachinePath = "Base Layer.test";
 
     private bool attackInProgress;
+    private bool comboWindowOpen;
     private bool queuedNextAttack;
     private bool hasPendingAnimationRequest;
     private bool swingActive;
@@ -17,7 +19,7 @@ public abstract class Weapon_Sword : MonoBehaviour, IPlayerWeapon
     protected Player_Attack Owner { get; private set; }
     protected virtual string AttackAnimationStatePrefix => "sword";
     protected abstract int MaxComboCount { get; }
-    protected abstract float ComboInputWindow { get; }
+    protected abstract float ComboInputWindow { get; }  // 연속공격 가능 시간 설정
 
     public abstract string WeaponId { get; }
     public abstract WeaponGrade Grade { get; }
@@ -73,7 +75,7 @@ public abstract class Weapon_Sword : MonoBehaviour, IPlayerWeapon
 
         if (attackInProgress)
         {
-            if (comboTimer > 0f)
+            if (comboWindowOpen && comboTimer > 0f)
             {
                 queuedNextAttack = true;
             }
@@ -114,7 +116,7 @@ public abstract class Weapon_Sword : MonoBehaviour, IPlayerWeapon
             return false;
         }
 
-        stateName = $"Base Layer.{AttackAnimationStatePrefix}_attack_{comboIndex}";
+        stateName = $"{attackStateMachinePath}.{AttackAnimationStatePrefix}_attack_{comboIndex}";
         return true;
     }
 
@@ -122,6 +124,7 @@ public abstract class Weapon_Sword : MonoBehaviour, IPlayerWeapon
     {
         currentComboIndex = comboIndex;
         attackInProgress = true;
+        comboWindowOpen = false;
         comboTimer = ResolvedComboInputWindow;
         Debug.Log($"[{WeaponId}] Combo attack {comboIndex} started.", this);
     }
@@ -129,14 +132,8 @@ public abstract class Weapon_Sword : MonoBehaviour, IPlayerWeapon
     public void OnAnimationCompleted(int comboIndex)
     {
         attackInProgress = false;
+        comboWindowOpen = false;
         CloseSwing();
-
-        if (queuedNextAttack && currentComboIndex < ResolvedMaxComboCount)
-        {
-            queuedNextAttack = false;
-            StartComboStep(currentComboIndex + 1);
-            return;
-        }
 
         if (currentComboIndex >= ResolvedMaxComboCount || comboTimer <= 0f)
         {
@@ -160,6 +157,45 @@ public abstract class Weapon_Sword : MonoBehaviour, IPlayerWeapon
         CloseSwing();
     }
 
+    public void OnComboWindowOpened(int comboIndex)
+    {
+        if (!attackInProgress || currentComboIndex != comboIndex)
+        {
+            return;
+        }
+
+        comboWindowOpen = true;
+    }
+
+    public void OnComboWindowCommitted(int comboIndex)
+    {
+        if (!attackInProgress || currentComboIndex != comboIndex)
+        {
+            return;
+        }
+
+        comboWindowOpen = false;
+
+        if (!queuedNextAttack || currentComboIndex >= ResolvedMaxComboCount)
+        {
+            return;
+        }
+
+        queuedNextAttack = false;
+        attackInProgress = false;
+        StartComboStep(currentComboIndex + 1);
+    }
+
+    public void OnComboWindowClosed(int comboIndex)
+    {
+        if (currentComboIndex != comboIndex)
+        {
+            return;
+        }
+
+        comboWindowOpen = false;
+    }
+
     public void CancelAttack()
     {
         CloseSwing();
@@ -177,6 +213,7 @@ public abstract class Weapon_Sword : MonoBehaviour, IPlayerWeapon
     private void ResetComboState()
     {
         attackInProgress = false;
+        comboWindowOpen = false;
         queuedNextAttack = false;
         hasPendingAnimationRequest = false;
         currentComboIndex = 0;

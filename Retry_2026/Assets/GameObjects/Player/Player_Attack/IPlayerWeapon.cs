@@ -13,5 +13,8 @@ public interface IPlayerWeapon
     void OnAnimationCompleted(int comboIndex);
     void OnAttackWindowOpened(int comboIndex);
     void OnAttackWindowClosed(int comboIndex);
+    void OnComboWindowOpened(int comboIndex);
+    void OnComboWindowCommitted(int comboIndex);
+    void OnComboWindowClosed(int comboIndex);
     void CancelAttack();
 }

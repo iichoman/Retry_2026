@@ -795,6 +795,7 @@ GameObject:
   serializedVersion: 6
   m_Component:
   - component: {fileID: 418145036}
+  - component: {fileID: 418145037}
   m_Layer: 0
   m_Name: Tests
   m_TagString: Untagged
@@ -817,6 +818,40 @@ Transform:
   m_Children: []
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!114 &418145037
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 418145035}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: ae4742a3a4412db439cc07124425f0f4, type: 3}
+  m_Name: 
+  m_EditorClassIdentifier: Assembly-CSharp::DungeonGenerator_ChunkMesh
+  mapSize: 750
+  mapHeight: 10
+  baseRoomSize: 50
+  targetRoomCount: 20
+  minLeafSize: 100
+  specialRoomLayoutChance: 0.45
+  minimumLayoutInset: 2
+  corridorWidth: 3
+  startRoomEdgeMargin: 10
+  teamCount: 4
+  seed: 12345
+  randomizeSeedOnGenerate: 1
+  generateOnStart: 1
+  centerMapAtOrigin: 1
+  floorMaterial: {fileID: 0}
+  wallMaterial: {fileID: 0}
+  ceilingMaterial: {fileID: 0}
+  createFloorCollider: 1
+  createWallCollider: 1
+  createCeilingCollider: 1
+  drawBspGizmos: 0
+  drawRoomGizmos: 0
 --- !u!1 &435182118
 GameObject:
   m_ObjectHideFlags: 0
@@ -1093,11 +1128,12 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::test_sword
   weaponHitbox: {fileID: 372212172}
+  attackStateMachinePath: Base Layer.test
   weaponId: test_sword
   grade: 0
   attackDamage: 10
   maxComboCount: 4
-  comboInputWindow: 0.75
+  comboInputWindow: 1
 --- !u!1 &1287427242
 GameObject:
   m_ObjectHideFlags: 0
@@ -1469,7 +1505,7 @@ MonoBehaviour:
   lookSensitivity: 2
   collisionMask:
     serializedVersion: 2
-    m_Bits: 4294967295
+    m_Bits: 0
   collisionRadius: 0.25
   collisionBuffer: 0.15
   minDistance: 0.5

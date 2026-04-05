@@ -70,7 +70,7 @@ public class Player_Animation : MonoBehaviour
 
     private void PlayPendingAttack()
     {
-        if (playerAttack == null || IsInAttackState())
+        if (playerAttack == null)
         {
             return;
         }
@@ -93,10 +93,16 @@ public class Player_Animation : MonoBehaviour
             return;
         }
 
+        if (comboIndex == currentComboIndex && IsInAttackState())
+        {
+            return;
+        }
+
         animator.CrossFadeInFixedTime(stateHash, attackTransitionDuration, 0, 0f);
 
         currentComboIndex = comboIndex;
         playerAttack.NotifyAttackAnimationStarted(comboIndex);
+        wasInAttackState = true;
     }
 
     private bool IsInAttackState()
