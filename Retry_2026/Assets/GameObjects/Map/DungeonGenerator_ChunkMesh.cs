@@ -604,7 +604,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
                     continue;
                 }
 
-                for (int y = 0; y < ceilingY; y++)
+                for (int y = 0; y < ceilingY+1; y++)
                 {
                     wallTiles.Add(new Vector3Int(neighborFloor.x, y, neighborFloor.z));
                 }
@@ -615,7 +615,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
         {
             foreach (Vector3Int blockedTile in room.blockedTiles)
             {
-                for (int y = 0; y < ceilingY; y++)
+                for (int y = 0; y < ceilingY+1; y++)
                 {
                     wallTiles.Add(new Vector3Int(blockedTile.x, y, blockedTile.z));
                 }
@@ -700,7 +700,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
 
         foreach (Vector3Int blockedTile in room.blockedTiles)
         {
-            for (int y = 0; y < ceilingY; y++)
+            for (int y = 0; y < ceilingY+1; y++)
             {
                 section.wallTiles.Add(new Vector3Int(blockedTile.x, y, blockedTile.z));
             }
@@ -723,7 +723,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
                     continue;
                 }
 
-                for (int y = 0; y < ceilingY; y++)
+                for (int y = 0; y < ceilingY+1; y++)
                 {
                     section.wallTiles.Add(new Vector3Int(neighborFloor.x, y, neighborFloor.z));
                 }
@@ -831,6 +831,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
         return mesh;
     }
 
+
     private Mesh BuildTopSurfaceColliderMesh(List<Vector3Int> tiles)
     {
         var vertices = new List<Vector3>(tiles.Count * 4);
@@ -913,6 +914,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
         triangles.Add(start + 3);
         triangles.Add(start + 2);
     }
+
 
     private Vector3[] GetFaceVertices(int directionIndex)
     {
