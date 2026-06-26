@@ -6,74 +6,80 @@
 //
 //  모든 통신: [PacketHeader 8바이트] + [본문 N바이트]
 //
-//  서버 권위 모델 (Authoritative) -> 그냥 C/S 방식이라는 말:
+//  서버 권위 모델 (Authoritative):
 //   - 클라는 입력/의도만 보내고, 결과(위치, 데미지, HP)는 서버가 결정해 통보
 //   - 몬스터 AI 전체는 서버가 시뮬레이션. 클라는 받은 상태로 그리기만 함
 //   - 던전은 시드 동기화 (서버/클라가 동일 알고리즘으로 각자 생성)
 //
 //  채널:
-//   - 현재: 모두 TCP
-//   - 추가: 위치/시야 갱신만 UDP로 분리 예정
+//   - Phase 1: 모두 TCP
+//   - Phase 2: 위치/시야 갱신만 UDP로 분리 예정
 //
 //  시야 처리 (Interest Management):
 //   - 각 클라는 자기 시야(VIEW_RANGE 반경) 안의 객체만 정보 받음
 //   - ENTER/LEAVE 이벤트로 시야 변화 알림, MOVE로 갱신
-//   - 현재: ViewList 방식 (모든 객체 순회 거리 체크, O(N²))
-//   - 추가: + Sector 방식 (격자 기반 공간 분할, O(N))
+//   - Phase 1: ViewList 방식 (모든 객체 순회 거리 체크, O(N²))
+//   - Phase 2: + Sector 방식 (격자 기반 공간 분할, O(N))
 // ============================================================================
 
 #pragma pack(push, 1)
 
-constexpr int MAX_SESSION_PLAYERS  = 30;
-constexpr int MAX_PLAYER_NAME      = 32;
-constexpr int MAX_ROOM_NAME        = 32;
-constexpr int MAX_ROOM_LIST        = 50;
-constexpr int MAX_FAIL_REASON      = 64;
-constexpr int MAX_IP_STRING        = 16;
+constexpr int MAX_SESSION_PLAYERS = 30;
+constexpr int MAX_PLAYER_NAME = 32;
+constexpr int MAX_ROOM_NAME = 32;
+constexpr int MAX_ROOM_LIST = 50;
+constexpr int MAX_FAIL_REASON = 64;
+constexpr int MAX_IP_STRING = 16;
 
 // ----------------------------------------------------------------------------
 //  패킷 종류
 // ----------------------------------------------------------------------------
 enum class PacketType : int {
     // ── 로비 (Retry_Server, 포트 9000) ─────────────────────────
-    LOGIN_REQUEST          = 1,
-    LOGIN_RESULT           = 2,
-    ROOM_CREATE_REQUEST    = 3,
-    ROOM_CREATE_RESULT     = 4,
-    ROOM_JOIN_REQUEST      = 5,
-    ROOM_JOIN_RESULT       = 6,
-    ROOM_LIST_REQUEST      = 7,
-    ROOM_LIST_RESULT       = 8,
-    GAME_START_REQUEST     = 9,
-    SESSION_ASSIGN         = 10,
+    LOGIN_REQUEST = 1,
+    LOGIN_RESULT = 2,
+    ROOM_CREATE_REQUEST = 3,
+    ROOM_CREATE_RESULT = 4,
+    ROOM_JOIN_REQUEST = 5,
+    ROOM_JOIN_RESULT = 6,
+    ROOM_LIST_REQUEST = 7,
+    ROOM_LIST_RESULT = 8,
+    GAME_START_REQUEST = 9,
+    SESSION_ASSIGN = 10,
 
     // ── 인게임: 입력 / 위치 (Session_Manager, 포트 9001) ───────
-    PLAYER_INPUT           = 20,   // C→S: 입력 + 자칭 위치 (50ms)
-    PLAYER_ENTER_VIEW      = 21,   // S→C: 시야에 새 플레이어 등장
-    PLAYER_LEAVE_VIEW      = 22,   // S→C: 시야에서 사라짐
-    PLAYER_MOVE            = 23,   // S→C: 시야 안 플레이어 이동/애니
+    PLAYER_INPUT = 20,   // C→S: 입력 + 자칭 위치 (50ms)
+    PLAYER_ENTER_VIEW = 21,   // S→C: 시야에 새 플레이어 등장
+    PLAYER_LEAVE_VIEW = 22,   // S→C: 시야에서 사라짐
+    PLAYER_MOVE = 23,   // S→C: 시야 안 플레이어 이동/애니
 
     // ── 인게임: 전투 ───────────────────────────────────────────
-    PLAYER_ATTACK_REQUEST  = 30,   // C→S: 공격 의도
-    COMBAT_EVENT           = 31,   // S→C: 공격 발생 + 결과
-    PLAYER_DIED            = 32,   // S→C: 사망
-    HP_CHANGED             = 33,   // S→C: HP 변경 (회복 등)
+    PLAYER_ATTACK_REQUEST = 30,   // C→S: 공격 의도
+    COMBAT_EVENT = 31,   // S→C: 공격 명중 + 데미지 결과
+    PLAYER_DIED = 32,   // S→C: 사망
+    HP_CHANGED = 33,   // S→C: HP 변경 (회복 등)
+    PLAYER_ATTACK_BROADCAST = 34,  // S→C: 다른 플레이어 공격 액션 (애니용, 빗나가도 송신)
 
     // ── 인게임: 몬스터 (서버 권위 AI) ──────────────────────────
-    MONSTER_ENTER_VIEW     = 40,
-    MONSTER_LEAVE_VIEW     = 41,
-    MONSTER_MOVE           = 42,
-    MONSTER_ATTACK_EVENT   = 43,   // S→C: 몬스터가 플레이어 공격함
-    MONSTER_DIED           = 44,
+    MONSTER_ENTER_VIEW = 40,
+    MONSTER_LEAVE_VIEW = 41,
+    MONSTER_MOVE = 42,
+    MONSTER_ATTACK_EVENT = 43,   // S→C: 몬스터가 플레이어 공격함
+    MONSTER_DIED = 44,
+
+    // 전투 - 원거리 투사체 (활/총)
+    PROJECTILE_SPAWN = 45,   // S→C: 투사체 생성 (직육면체 발사)
+    PROJECTILE_MOVE = 46,   // S→C: 투사체 위치 갱신 (매 틱)
+    PROJECTILE_DESPAWN = 47,   // S→C: 투사체 소멸 (벽/대상 명중 또는 수명)
 
     // ── 탈출 / 세션 종료 ───────────────────────────────────────
-    EXTRACTION_REQUEST     = 50,
-    EXTRACTION_RESULT      = 51,
-    SESSION_ENDED          = 52,
+    EXTRACTION_REQUEST = 50,
+    EXTRACTION_RESULT = 51,
+    SESSION_ENDED = 52,
 
     // ── IPC (Retry_Server ↔ Session_Manager, 포트 9002) ───────
-    IPC_CREATE_SESSION     = 100,
-    IPC_SESSION_ENDED      = 101,
+    IPC_CREATE_SESSION = 100,
+    IPC_SESSION_ENDED = 101,
 };
 
 struct PacketHeader {
@@ -155,7 +161,6 @@ struct PlayerInput {
     float     moveX, moveY;
     int       jump;
     int       sprint;
-    float     cameraYaw;
     long long timestamp;
     float     posX, posY, posZ;
     float     rotY;
@@ -191,10 +196,10 @@ struct PlayerMove {
 // ----------------------------------------------------------------------------
 
 enum WeaponKind : int {
-    WEAPON_SWORD     = 0,    // 한손검
+    WEAPON_SWORD = 0,    // 한손검
     WEAPON_BIG_SWORD = 1,    // 양손검
-    WEAPON_BOW       = 2,    // 활
-    WEAPON_GUN       = 3,    // 총
+    WEAPON_BOW = 2,    // 활
+    WEAPON_GUN = 3,    // 총
 };
 
 // C→S: 공격 의도. 서버가 충돌 검사로 대상/데미지를 결정.
@@ -203,6 +208,16 @@ struct PlayerAttackRequest {
     int       comboIndex;
     float     originX, originY, originZ;   // 공격 시작 위치
     float     dirX, dirY, dirZ;            // 공격 방향(정규화 권장)
+    long long timestamp;
+};
+
+// S→C: 공격 액션 알림. 빗나가도 항상 송신. 다른 클라들의 액션 애니용.
+struct PlayerAttackBroadcast {
+    int       attackerId;
+    int       weaponKind;
+    int       comboIndex;
+    float     originX, originY, originZ;
+    float     dirX, dirY, dirZ;
     long long timestamp;
 };
 
@@ -224,6 +239,31 @@ struct PlayerDied {
     int killerId;          // 양수=플레이어, 음수=몬스터, 0=환경/낙사
 };
 
+// ── 원거리 투사체 (활/총). 미쿠가 던지는 직육면체. ──
+// S→C: 투사체 생성. 클라는 이 패킷으로 직육면체를 월드에 띄운다.
+struct ProjectileSpawn {
+    int   projectileId;
+    int   ownerId;        // 발사한 플레이어
+    int   weaponKind;     // WEAPON_BOW / WEAPON_GUN
+    float posX, posY, posZ;   // 시작 위치
+    float dirX, dirY, dirZ;   // 진행 방향(정규화)
+    float speed;              // m/s
+};
+
+// S→C: 투사체 위치 갱신 (매 틱). 클라는 직육면체를 이 위치로 이동.
+struct ProjectileMove {
+    int   projectileId;
+    float posX, posY, posZ;
+};
+
+// S→C: 투사체 소멸. 클라는 직육면체를 제거하고 미쿠 손에 초기화.
+struct ProjectileDespawn {
+    int   projectileId;
+    int   hitType;        // 0=벽, 1=몬스터, 2=플레이어, 3=수명(사거리 초과)
+    int   hitTargetId;    // 몬스터=음수, 플레이어=양수, 벽/수명=0
+    float posX, posY, posZ;   // 소멸(명중) 위치
+};
+
 // HP 변화 (회복 아이템, 디버프 등 데미지 외 사유)
 struct HpChanged {
     int targetId;
@@ -237,16 +277,16 @@ struct HpChanged {
 
 enum MonsterKind : int {
     MONSTER_NORMAL = 0,
-    MONSTER_ELITE  = 1,
-    MONSTER_BOSS   = 2,
+    MONSTER_ELITE = 1,
+    MONSTER_BOSS = 2,
 };
 
 enum MonsterAiState : int {
-    AI_IDLE   = 0,
+    AI_IDLE = 0,
     AI_PATROL = 1,
-    AI_CHASE  = 2,
+    AI_CHASE = 2,
     AI_ATTACK = 3,
-    AI_DEAD   = 4,
+    AI_DEAD = 4,
 };
 
 struct MonsterEnterView {

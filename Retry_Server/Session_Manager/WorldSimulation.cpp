@@ -1,5 +1,6 @@
 ﻿#include "WorldSimulation.h"
 #include "PlayerEntity.h"
+#include "PositionValidator.h"
 #include "Dungeon/CSharpRandom.h"
 #include "../Common/Logger.h"
 
@@ -34,12 +35,12 @@ void WorldSimulation::SpawnMonsters(const DungeonGenerator& dungeon, int seed)
 
         if (room.type == ROOM_TYPE_BOSS)
         {
-            spawnCount  = 1;
+            spawnCount = 1;
             monsterKind = MONSTER_BOSS;
         }
         else
         {
-            spawnCount  = random.Next(1, 4);
+            spawnCount = random.Next(1, 4);
             monsterKind = (random.NextDouble() < 0.2) ? MONSTER_ELITE : MONSTER_NORMAL;
         }
 
@@ -67,7 +68,7 @@ void WorldSimulation::SpawnMonsters(const DungeonGenerator& dungeon, int seed)
     }
 
     Log::Info("[WorldSim] 몬스터 스폰 완료: %d마리 (방 %d개)",
-              (int)monsters.size(), (int)dungeon.rooms.size());
+        (int)monsters.size(), (int)dungeon.rooms.size());
 }
 
 // ============================================================================
@@ -75,6 +76,7 @@ void WorldSimulation::SpawnMonsters(const DungeonGenerator& dungeon, int seed)
 // ============================================================================
 void WorldSimulation::Step(float dt,
     std::unordered_map<int, std::unique_ptr<PlayerEntity>>& players,
+    const DungeonGenerator& dungeon,
     std::vector<AttackEvent>& outAttacks)
 {
     long long nowMs = duration_cast<milliseconds>(
@@ -84,7 +86,7 @@ void WorldSimulation::Step(float dt,
     {
         MonsterEntity& m = *kv.second;
         if (m.aiState == AI_DEAD) continue;
-        StepMonsterAI(m, dt, nowMs, players, outAttacks);
+        StepMonsterAI(m, dt, nowMs, players, dungeon, outAttacks);
     }
 }
 
@@ -101,6 +103,7 @@ void WorldSimulation::Step(float dt,
 // ============================================================================
 void WorldSimulation::StepMonsterAI(MonsterEntity& m, float dt, long long nowMs,
     std::unordered_map<int, std::unique_ptr<PlayerEntity>>& players,
+    const DungeonGenerator& dungeon,
     std::vector<AttackEvent>& outAttacks)
 {
     // 타겟 유효성 검증
@@ -131,7 +134,7 @@ void WorldSimulation::StepMonsterAI(MonsterEntity& m, float dt, long long nowMs,
             if (found != 0)
             {
                 m.targetClientId = found;
-                m.aiState        = AI_CHASE;
+                m.aiState = AI_CHASE;
             }
         }
         break;
@@ -147,7 +150,7 @@ void WorldSimulation::StepMonsterAI(MonsterEntity& m, float dt, long long nowMs,
         if (dist > m.detectRange * 1.5f)
         {
             m.targetClientId = 0;
-            m.aiState        = AI_IDLE;
+            m.aiState = AI_IDLE;
             break;
         }
 
@@ -164,8 +167,12 @@ void WorldSimulation::StepMonsterAI(MonsterEntity& m, float dt, long long nowMs,
         float vx = dx * invLen * m.moveSpeed;
         float vz = dz * invLen * m.moveSpeed;
 
-        m.position.x += vx * dt;
-        m.position.z += vz * dt;
+        // 새 위치 후보
+        Vec3 attempted(m.position.x + vx * dt, m.position.y, m.position.z + vz * dt);
+
+        // 위치 검증: 벽 통과 시 슬라이딩, 텔레포트 시 거부
+        m.position = PositionValidator::ValidateMove(
+            dungeon, m.position, attempted, m.moveSpeed, dt);
 
         // 타겟 방향으로 회전 (degrees, Unity Y축)
         m.rotY = std::atan2(dx, dz) * 180.f / 3.14159265358979f;
@@ -193,9 +200,9 @@ void WorldSimulation::StepMonsterAI(MonsterEntity& m, float dt, long long nowMs,
         {
             m.lastAttackTime = nowMs;
             AttackEvent ev{};
-            ev.monsterId      = m.id;
+            ev.monsterId = m.id;
             ev.victimClientId = target->clientId;
-            ev.damage         = m.attackDamage;
+            ev.damage = m.attackDamage;
             outAttacks.push_back(ev);
         }
         break;
@@ -213,7 +220,7 @@ int WorldSimulation::FindNearestPlayerInRange(const MonsterEntity& m,
     std::unordered_map<int, std::unique_ptr<PlayerEntity>>& players)
 {
     int   nearestId = 0;
-    float bestSq    = m.detectRange * m.detectRange;
+    float bestSq = m.detectRange * m.detectRange;
 
     for (auto& kv : players)
     {
@@ -224,7 +231,7 @@ int WorldSimulation::FindNearestPlayerInRange(const MonsterEntity& m,
         float d2 = m.position.DistanceSqXZ(p.position);
         if (d2 < bestSq)
         {
-            bestSq    = d2;
+            bestSq = d2;
             nearestId = p.clientId;
         }
     }

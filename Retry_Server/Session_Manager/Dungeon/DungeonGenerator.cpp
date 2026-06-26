@@ -10,8 +10,8 @@
 //  유틸 (Mathf 등 Unity 함수 대체)
 // ============================================================================
 
-static inline int   Mathf_Max(int a, int b)            { return a > b ? a : b; }
-static inline int   Mathf_Min(int a, int b)            { return a < b ? a : b; }
+static inline int   Mathf_Max(int a, int b) { return a > b ? a : b; }
+static inline int   Mathf_Min(int a, int b) { return a < b ? a : b; }
 static inline int   Mathf_Clamp(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 static inline int   Mathf_RoundToInt(float f)
 {
@@ -23,10 +23,10 @@ static inline int   Mathf_FloorToInt(float f) { return (int)std::floor(f); }
 
 // 4방향 (XZ)
 static const IntVec3 HorizontalDirections[4] = {
-    IntVec3( 1, 0,  0),
+    IntVec3(1, 0,  0),
     IntVec3(-1, 0,  0),
-    IntVec3( 0, 0,  1),
-    IntVec3( 0, 0, -1),
+    IntVec3(0, 0,  1),
+    IntVec3(0, 0, -1),
 };
 
 // ============================================================================
@@ -45,7 +45,7 @@ void DungeonGenerator::Generate(int seed)
     // 시작 방 후보 생성 + 팀 배정 (StartRoomManager.cs 1:1 포팅)
     {
         auto candidates = BuildStartRoomCandidates(mapSize, baseRoomSize,
-                                                    startRoomEdgeMargin, startRoomThickness);
+            startRoomEdgeMargin, startRoomThickness);
         // C#의 AssignTeams는 candidates를 입력받아 results를 반환.
         // 여기선 in-place로 occupied/teamId 설정 + assignedStartRooms에 직접 push.
         AssignTeams(candidates, teamCount, seed);
@@ -78,9 +78,12 @@ void DungeonGenerator::Generate(int seed)
     AddStartRoomTiles();
     BuildWallsAndCeiling();
 
+    // 포탈 그래프 구성 (방+복도 노드 + 인접 관계)
+    BuildNodeGraph();
+
     Log::Info("[Dungeon] 생성 완료: rooms=%d corridors=%d floor=%d wall=%d solid=%d",
-              (int)rooms.size(), (int)corridors.size(),
-              (int)floorTiles.size(), (int)wallTiles.size(), (int)solidTiles.size());
+        (int)rooms.size(), (int)corridors.size(),
+        (int)floorTiles.size(), (int)wallTiles.size(), (int)solidTiles.size());
 }
 
 // ============================================================================
@@ -164,7 +167,7 @@ std::vector<int> DungeonGenerator::PickStartSlots(int teamCountArg, int seed)
 }
 
 void DungeonGenerator::AssignTeams(std::vector<StartRoom>& candidates,
-                                    int teamCountArg, int seed)
+    int teamCountArg, int seed)
 {
     auto picked = PickStartSlots(teamCountArg, seed);
     assignedStartRooms.clear();
@@ -175,14 +178,14 @@ void DungeonGenerator::AssignTeams(std::vector<StartRoom>& candidates,
         int idx = picked[i];
         StartRoom room = candidates[idx];     // 복사
         room.occupied = true;
-        room.teamId   = i;
+        room.teamId = i;
         assignedStartRooms.push_back(std::move(room));
     }
 }
 
 StartRoom DungeonGenerator::CreateStartRoom(int slotIndex, IntVec3 position,
-                                             int roomSize, int thickness,
-                                             float yawDegrees)
+    int roomSize, int thickness,
+    float yawDegrees)
 {
     StartRoom sr;
     sr.slotIndex = slotIndex;
@@ -191,7 +194,7 @@ StartRoom DungeonGenerator::CreateStartRoom(int slotIndex, IntVec3 position,
     float spawnY = (float)sr.bounds.yMin() + 1.5f;
     Vec3 boundsCenter = sr.bounds.center();
     sr.teamAnchorPosition = Vec3(boundsCenter.x, spawnY, boundsCenter.z);
-    sr.spawnYawDegrees   = yawDegrees;
+    sr.spawnYawDegrees = yawDegrees;
     sr.playerSpawnPositions = BuildPlayerSpawnPositions(
         sr.teamAnchorPosition, yawDegrees, roomSize);
 
@@ -219,12 +222,12 @@ std::vector<Vec3> DungeonGenerator::BuildPlayerSpawnPositions(
     std::vector<Vec3> positions;
     positions.reserve(3);
     positions.push_back(Vec3(anchor.x - right.x * spacing,
-                             anchor.y - right.y * spacing,
-                             anchor.z - right.z * spacing));
+        anchor.y - right.y * spacing,
+        anchor.z - right.z * spacing));
     positions.push_back(anchor);
     positions.push_back(Vec3(anchor.x + right.x * spacing,
-                             anchor.y + right.y * spacing,
-                             anchor.z + right.z * spacing));
+        anchor.y + right.y * spacing,
+        anchor.z + right.z * spacing));
     return positions;
 }
 
@@ -234,7 +237,7 @@ std::vector<Vec3> DungeonGenerator::BuildPlayerSpawnPositions(
 
 void DungeonGenerator::SplitToTarget(BSPNode* node, int targetCount, int minSize, CSharpRandom& random)
 {
-    std::vector<BSPNode*> leaves     = { node };
+    std::vector<BSPNode*> leaves = { node };
     std::vector<BSPNode*> splittable = { node };
     int safety = 0;
 
@@ -284,17 +287,17 @@ void DungeonGenerator::BuildRooms(BSPNode* node, CSharpRandom& random)
         IntBounds rb = CreateRoomBounds(leaf->bounds, shape, random);
 
         Room room;
-        room.id    = roomId++;
-        room.type  = ROOM_TYPE_NORMAL;
+        room.id = roomId++;
+        room.type = ROOM_TYPE_NORMAL;
         room.shape = shape;
         room.bounds = rb;
         room.layoutType = PickRoomLayout(rb, random);
         GenerateRoomLayout(room, random);
 
         leaf->roomBounds = rb;
-        leaf->hasRoom    = true;
+        leaf->hasRoom = true;
         rooms.push_back(std::move(room));
-        leaf->roomData   = &rooms.back();
+        leaf->roomData = &rooms.back();
     }
     // 주의: rooms에 push_back 하면 vector가 재할당되며 leaf->roomData 포인터가 깨질 수 있음.
     //       reserve로 충분한 공간 확보했지만, 안전하게 한 번 더 보정.
@@ -318,11 +321,11 @@ void DungeonGenerator::BuildBossRooms(CSharpRandom& random)
         RemoveRoomsOverlapping(b, bossRoomOverlapPadding);
 
         Room room;
-        room.id         = GetNextRoomId();
-        room.type       = ROOM_TYPE_BOSS;
-        room.shape      = ROOM_SHAPE_LARGE;
+        room.id = GetNextRoomId();
+        room.type = ROOM_TYPE_BOSS;
+        room.shape = ROOM_SHAPE_LARGE;
         room.layoutType = LAYOUT_OPEN;
-        room.bounds     = b;
+        room.bounds = b;
         GenerateRoomLayout(room, random);
         rooms.push_back(std::move(room));
     }
@@ -343,9 +346,9 @@ std::vector<IntBounds> DungeonGenerator::CreateBossRoomBounds(int count)
     }
 
     int spacing = width + Mathf_Max(corridorWidth * 2, 8);
-    int leftCenterX  = centerX - spacing / 2;
+    int leftCenterX = centerX - spacing / 2;
     int rightCenterX = centerX + spacing / 2;
-    result.push_back(CreateCenteredBounds(leftCenterX,  centerZ, width, depth));
+    result.push_back(CreateCenteredBounds(leftCenterX, centerZ, width, depth));
     result.push_back(CreateCenteredBounds(rightCenterX, centerZ, width, depth));
     return result;
 }
@@ -404,7 +407,7 @@ void DungeonGenerator::RemoveRoomsOverlapping(const IntBounds& bounds, int paddi
         {
             if (!l->hasRoom) continue;
             if (l->roomBounds.position == r.bounds.position &&
-                l->roomBounds.size     == r.bounds.size)
+                l->roomBounds.size == r.bounds.size)
             {
                 l->roomData = &r;
                 break;
@@ -419,7 +422,7 @@ void DungeonGenerator::ClearRoomFromBsp(BSPNode* node, const Room* room)
     if (node->roomData == room)
     {
         node->roomData = nullptr;
-        node->hasRoom  = false;
+        node->hasRoom = false;
     }
     ClearRoomFromBsp(node->left.get(), room);
     ClearRoomFromBsp(node->right.get(), room);
@@ -436,7 +439,7 @@ IntBounds DungeonGenerator::ExpandBoundsXZ(const IntBounds& bounds, int padding)
 bool DungeonGenerator::OverlapsXZ(const IntBounds& a, const IntBounds& b)
 {
     return a.xMin() < b.xMax() && a.xMax() > b.xMin() &&
-           a.zMin() < b.zMax() && a.zMax() > b.zMin();
+        a.zMin() < b.zMax() && a.zMax() > b.zMin();
 }
 
 // ============================================================================
@@ -447,13 +450,13 @@ void DungeonGenerator::BuildCorridors(BSPNode* node, CSharpRandom& random)
 {
     if (!node || !node->left || !node->right) return;
 
-    Room* leftRoom  = node->left->GetRoomData();
+    Room* leftRoom = node->left->GetRoomData();
     Room* rightRoom = node->right->GetRoomData();
     if (leftRoom && rightRoom)
     {
         Vec3 lc = leftRoom->bounds.center();
         Vec3 rc = rightRoom->bounds.center();
-        IntVec3 leftConn  = GetRoomConnectionPoint(*leftRoom,
+        IntVec3 leftConn = GetRoomConnectionPoint(*leftRoom,
             IntVec3(Mathf_FloorToInt(rc.x), Mathf_FloorToInt(rc.y), Mathf_FloorToInt(rc.z)));
         IntVec3 rightConn = GetRoomConnectionPoint(*rightRoom,
             IntVec3(Mathf_FloorToInt(lc.x), Mathf_FloorToInt(lc.y), Mathf_FloorToInt(lc.z)));
@@ -467,7 +470,7 @@ void DungeonGenerator::BuildCorridors(BSPNode* node, CSharpRandom& random)
         AddNeighbor(leftRoom, rightRoom);
     }
 
-    BuildCorridors(node->left.get(),  random);
+    BuildCorridors(node->left.get(), random);
     BuildCorridors(node->right.get(), random);
 }
 
@@ -488,11 +491,11 @@ Corridor DungeonGenerator::CreateCorridor(IntVec3 start, IntVec3 end, CSharpRand
     if (xFirst)
     {
         AddHorizontalCorridor(c.floorTiles, start.x, end.x, start.z);
-        AddVerticalCorridor  (c.floorTiles, start.z, end.z, end.x);
+        AddVerticalCorridor(c.floorTiles, start.z, end.z, end.x);
     }
     else
     {
-        AddVerticalCorridor  (c.floorTiles, start.z, end.z, start.x);
+        AddVerticalCorridor(c.floorTiles, start.z, end.z, start.x);
         AddHorizontalCorridor(c.floorTiles, start.x, end.x, end.z);
     }
     return c;
@@ -564,7 +567,7 @@ Room* DungeonGenerator::FindNearestRoom(const Vec3& startCenter)
         float dx = c.x - startCenter.x;
         float dy = c.y - startCenter.y;
         float dz = c.z - startCenter.z;
-        float d  = std::sqrt(dx*dx + dy*dy + dz*dz);
+        float d = std::sqrt(dx * dx + dy * dy + dz * dz);
         if (d < bestDist) { bestDist = d; nearest = &r; }
     }
     return nearest;
@@ -582,12 +585,12 @@ std::vector<Room*> DungeonGenerator::FindNearestRooms(const Vec3& startCenter, i
         [&startCenter](Room* a, Room* b) {
             Vec3 ca = a->bounds.center();
             Vec3 cb = b->bounds.center();
-            float da = (ca.x-startCenter.x)*(ca.x-startCenter.x)
-                     + (ca.y-startCenter.y)*(ca.y-startCenter.y)
-                     + (ca.z-startCenter.z)*(ca.z-startCenter.z);
-            float db = (cb.x-startCenter.x)*(cb.x-startCenter.x)
-                     + (cb.y-startCenter.y)*(cb.y-startCenter.y)
-                     + (cb.z-startCenter.z)*(cb.z-startCenter.z);
+            float da = (ca.x - startCenter.x) * (ca.x - startCenter.x)
+                + (ca.y - startCenter.y) * (ca.y - startCenter.y)
+                + (ca.z - startCenter.z) * (ca.z - startCenter.z);
+            float db = (cb.x - startCenter.x) * (cb.x - startCenter.x)
+                + (cb.y - startCenter.y) * (cb.y - startCenter.y)
+                + (cb.z - startCenter.z) * (cb.z - startCenter.z);
             return da < db;
         });
 
@@ -752,7 +755,7 @@ IntVec3 DungeonGenerator::GetRoomConnectionPoint(const Room& room, const IntVec3
         float dx = (float)(tile.x - target.x);
         float dy = (float)(tile.y - target.y);
         float dz = (float)(tile.z - target.z);
-        float d = dx*dx + dy*dy + dz*dz;
+        float d = dx * dx + dy * dy + dz * dz;
         if (d < bestDist) { bestDist = d; best = tile; }
     }
     return best;
@@ -790,7 +793,7 @@ IntVec2 DungeonGenerator::CalculateFourPillarSize(IntVec2 interiorSize)
 
 IntVec2 DungeonGenerator::CalculateQuarterCenters(int axisSize)
 {
-    int firstCenter  = Mathf_RoundToInt(axisSize * 0.25f);
+    int firstCenter = Mathf_RoundToInt(axisSize * 0.25f);
     int secondCenter = Mathf_RoundToInt(axisSize * 0.75f);
     int minC = minimumLayoutInset;
     int maxC = Mathf_Max(minC, axisSize - minimumLayoutInset);
@@ -920,11 +923,11 @@ Vec3 DungeonGenerator::TileToWorldCenter(const IntVec3& tile) const
 IntVec3 DungeonGenerator::WorldToTile(const Vec3& worldPos) const
 {
     Vec3 local(worldPos.x - worldOffset.x,
-               worldPos.y - worldOffset.y,
-               worldPos.z - worldOffset.z);
+        worldPos.y - worldOffset.y,
+        worldPos.z - worldOffset.z);
     return IntVec3(Mathf_FloorToInt(local.x),
-                   Mathf_FloorToInt(local.y),
-                   Mathf_FloorToInt(local.z));
+        Mathf_FloorToInt(local.y),
+        Mathf_FloorToInt(local.z));
 }
 
 bool DungeonGenerator::IsFloorTile(const IntVec3& tile) const
@@ -940,4 +943,110 @@ bool DungeonGenerator::IsWallTile(const IntVec3& tile) const
 bool DungeonGenerator::IsSolidTile(const IntVec3& tile) const
 {
     return solidTiles.count(tile) > 0;
+}
+
+// ============================================================================
+//  방 기반 AOI 지원 (Zone 방식)
+// ============================================================================
+int DungeonGenerator::RoomIdAt(const Vec3& worldPos) const
+{
+    IntVec3 t = WorldToTile(worldPos);
+    // 모든 방의 bounds(사각형)를 검사. BSP라 방끼리 겹치지 않음.
+    for (const Room& r : rooms)
+    {
+        if (t.x >= r.bounds.xMin() && t.x < r.bounds.xMax() &&
+            t.z >= r.bounds.zMin() && t.z < r.bounds.zMax())
+        {
+            return r.id;
+        }
+    }
+    return -1;      // 복도이거나 방 밖
+}
+
+bool DungeonGenerator::AreRoomsAdjacent(int roomA, int roomB) const
+{
+    if (roomA < 0 || roomB < 0) return false;
+    if (roomA == roomB) return true;
+    for (const Room& r : rooms)
+    {
+        if (r.id == roomA)
+        {
+            for (int n : r.neighbors)
+                if (n == roomB) return true;
+            return false;
+        }
+    }
+    return false;
+}
+
+// ============================================================================
+//  포탈 그래프 AOI (방+복도 노드, 1-hop 가시성)
+// ============================================================================
+void DungeonGenerator::BuildNodeGraph()
+{
+    tileToNode_.clear();    // 복도 타일만 보관 (방은 NodeIdAt에서 bounds로 판정)
+    nodeAdj_.clear();
+
+    // 1) 복도 타일 → 복도 노드. (방 타일은 넣지 않는다. 일부 방은 floorTiles가
+    //    비어 있을 수 있어, 방 판정은 NodeIdAt에서 bounds로 처리한다.)
+    //    복도끼리 교차(타일 공유)하면 두 복도를 인접 노드로 연결한다.
+    for (size_t i = 0; i < corridors.size(); ++i)
+    {
+        int cnode = CORRIDOR_NODE_BASE + (int)i;
+        for (const IntVec3& raw : corridors[i].floorTiles)
+        {
+            IntVec3 t(raw.x, 0, raw.z);
+            auto existing = tileToNode_.find(t);
+            if (existing != tileToNode_.end() &&
+                existing->second >= CORRIDOR_NODE_BASE &&
+                existing->second != cnode)
+            {
+                // 다른 복도와 교차 → 두 복도를 인접 노드로
+                nodeAdj_[cnode].insert(existing->second);
+                nodeAdj_[existing->second].insert(cnode);
+            }
+            tileToNode_[t] = cnode;     // 마지막 복도로 덮어쓰기(교차점 대표)
+        }
+    }
+
+    // 2) 인접 관계: 복도 ↔ 그 복도가 연결하는 방들.
+    //    (방↔방 neighbors는 "복도로 연결된 방"이므로 넣지 않는다.
+    //     방에 있을 때 복도 건너 다른 방이 보이면 안 되기 때문.)
+    for (size_t i = 0; i < corridors.size(); ++i)
+    {
+        int cnode = CORRIDOR_NODE_BASE + (int)i;
+        for (int rid : corridors[i].connectedRoomIds)
+        {
+            nodeAdj_[cnode].insert(rid);
+            nodeAdj_[rid].insert(cnode);
+        }
+    }
+}
+
+int DungeonGenerator::NodeIdAt(const Vec3& worldPos) const
+{
+    IntVec3 t = WorldToTile(worldPos);
+    t.y = 0;
+
+    // 1) 방 bounds 우선 (방 안이면 항상 그 방 노드).
+    //    방-복도 경계의 복도 타일이 방 bounds 안에 있어도 "방"으로 분류된다.
+    for (const Room& r : rooms)
+    {
+        if (t.x >= r.bounds.xMin() && t.x < r.bounds.xMax() &&
+            t.z >= r.bounds.zMin() && t.z < r.bounds.zMax())
+            return r.id;
+    }
+
+    // 2) 방 밖이면 복도 타일 조회
+    auto it = tileToNode_.find(t);
+    return (it != tileToNode_.end()) ? it->second : -1;
+}
+
+bool DungeonGenerator::AreNodesAdjacent(int nodeA, int nodeB) const
+{
+    if (nodeA < 0 || nodeB < 0) return false;
+    if (nodeA == nodeB) return true;
+    auto it = nodeAdj_.find(nodeA);
+    if (it == nodeAdj_.end()) return false;
+    return it->second.count(nodeB) > 0;
 }

@@ -2,6 +2,7 @@
 #include "PlayerEntity.h"
 #include "MonsterEntity.h"
 #include "SessionClientConnection.h"
+#include "PositionValidator.h"
 #include "../Common/PacketProtocol.h"
 #include "../Common/Logger.h"
 
@@ -11,7 +12,7 @@
 using namespace std::chrono;
 
 GameSession::GameSession(int sid, int hid, int seed,
-                         const std::vector<int>& allowedPlayerIds)
+    const std::vector<int>& allowedPlayerIds)
     : sessionId(sid)
     , hostClientId(hid)
     , mapSeed(seed)
@@ -39,7 +40,7 @@ void GameSession::Start()
     running = true;
     tickThread = std::thread([this] { TickLoop(); });
     Log::Info("세션 시작: id=%d host=%d seed=%d 인원=%d",
-              sessionId, hostClientId, mapSeed, (int)allowedPlayers.size());
+        sessionId, hostClientId, mapSeed, (int)allowedPlayers.size());
 }
 
 void GameSession::Stop()
@@ -47,7 +48,7 @@ void GameSession::Stop()
     if (!running.exchange(false)) return;
     if (tickThread.joinable()) tickThread.join();
 
-    std::lock_guard<std::mutex> lk(mtx);
+    std::lock_guard<std::recursive_mutex> lk(mtx);
     for (auto& kv : players)
     {
         if (kv.second->conn) kv.second->conn->Disconnect();
@@ -62,7 +63,7 @@ bool GameSession::IsAllowedPlayer(int clientId) const
 
 void GameSession::AttachClient(int clientId, SessionClientConnection* conn)
 {
-    std::lock_guard<std::mutex> lk(mtx);
+    std::lock_guard<std::recursive_mutex> lk(mtx);
 
     auto it = players.find(clientId);
     if (it != players.end())
@@ -80,61 +81,70 @@ void GameSession::AttachClient(int clientId, SessionClientConnection* conn)
         if (!dungeon.assignedStartRooms.empty())
         {
             int playerIndex = (int)players.size();        // 0,1,2,...
-            int teamSlot    = playerIndex / PLAYERS_PER_TEAM;     // 0,0,0, 1,1,1, ...
-            int slotInTeam  = playerIndex % PLAYERS_PER_TEAM;     // 0,1,2, 0,1,2, ...
+            int teamSlot = playerIndex / PLAYERS_PER_TEAM;     // 0,0,0, 1,1,1, ...
+            int slotInTeam = playerIndex % PLAYERS_PER_TEAM;     // 0,1,2, 0,1,2, ...
             teamSlot = teamSlot % (int)dungeon.assignedStartRooms.size();
 
             const StartRoom& sr = dungeon.assignedStartRooms[teamSlot];
             const Vec3& spawn = (slotInTeam < (int)sr.playerSpawnPositions.size())
-                                ? sr.playerSpawnPositions[slotInTeam]
-                                : sr.teamAnchorPosition;
+                ? sr.playerSpawnPositions[slotInTeam]
+                : sr.teamAnchorPosition;
             pe->position = Vec3(spawn.x + dungeon.worldOffset.x,
-                                spawn.y,
-                                spawn.z + dungeon.worldOffset.z);
+                spawn.y,
+                spawn.z + dungeon.worldOffset.z);
             pe->rotY = sr.spawnYawDegrees;
         }
         pe->conn = conn;
         players[clientId] = std::move(pe);
         Log::Info("[Session %d] 입장: clientId=%d (현재 %d명) pos=(%.1f, %.1f, %.1f)",
-                  sessionId, clientId, (int)players.size(),
-                  players[clientId]->position.x,
-                  players[clientId]->position.y,
-                  players[clientId]->position.z);
+            sessionId, clientId, (int)players.size(),
+            players[clientId]->position.x,
+            players[clientId]->position.y,
+            players[clientId]->position.z);
     }
 
-    // 5단계 추가: 신규/재입장한 클라에게 현재 모든 객체의 ENTER_VIEW 송신
-    SendInitialEnterViews(clientId);
+    // 6단계: 시야 처리 활성화.
+    //   - 새 입장자에게: 시야 안 다른 플레이어/몬스터의 ENTER_VIEW 송신
+    //   - 시야 안 다른 플레이어들에게: 새 입장자의 ENTER_VIEW 송신
+    //   - 양쪽 viewedXxx 갱신
+    im.OnPlayerJoin(*this, clientId);
 
-    // 다른 클라들에게는 이 입장자의 ENTER_VIEW 송신
+    // 본인 시작 위치 즉시 알림 (클라가 시작방 좌표로 transform 갱신용).
+    // OnPlayerJoin은 다른 객체 ENTER만 처리. 본인 PLAYER_MOVE는 별도 송신.
     PlayerEntity* p = players[clientId].get();
-    SendPlayerEnterViewToOthers(*p, clientId);
+    p->startPosResendTicks = 20;   // 20틱(=1초) 동안 재송신 예약
+    if (p && p->conn && p->conn->active)
+    {
+        long long ts = duration_cast<milliseconds>(
+            system_clock::now().time_since_epoch()).count();
+        PlayerMove pm{};
+        pm.clientId = p->clientId;
+        pm.posX = p->position.x;
+        pm.posY = p->position.y;
+        pm.posZ = p->position.z;
+        pm.rotY = p->rotY;
+        pm.speed = 0.f;
+        pm.animState = 0;
+        pm.timestamp = ts;
+        p->conn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
+    }
 }
 
 void GameSession::DetachClient(int clientId)
 {
-    std::lock_guard<std::mutex> lk(mtx);
+    std::lock_guard<std::recursive_mutex> lk(mtx);
     auto it = players.find(clientId);
     if (it == players.end()) return;
     it->second->conn = nullptr;     // entity는 유지, 연결만 해제
 
-    // 다른 클라들에게 PLAYER_LEAVE_VIEW 송신
-    PlayerLeaveView lv{};
-    lv.clientId = clientId;
-    for (auto& kv : players)
-    {
-        if (kv.first == clientId) continue;
-        SessionClientConnection* c = kv.second->conn;
-        if (c && c->active)
-        {
-            c->SendPacket((int)PacketType::PLAYER_LEAVE_VIEW, &lv, sizeof(lv));
-        }
-    }
+    // 6단계: 시야 안 다른 플레이어들에게 LEAVE_VIEW 송신 + viewedPlayers에서 제거
+    im.OnPlayerLeave(*this, clientId);
 
     Log::Info("[Session %d] 퇴장: clientId=%d", sessionId, clientId);
 }
 
 void GameSession::HandlePacket(int clientId, int packetType,
-                               const char* body, int bodySize)
+    const char* body, int bodySize)
 {
     PacketType type = static_cast<PacketType>(packetType);
     switch (type)
@@ -144,13 +154,16 @@ void GameSession::HandlePacket(int clientId, int packetType,
         HandlePlayerInput(clientId, body, bodySize, 0.05f);
         break;
 
-    // 5~7단계에서 추가:
-    // case PacketType::PLAYER_ATTACK_REQUEST: ...
-    // case PacketType::EXTRACTION_REQUEST:   ...
+    case PacketType::PLAYER_ATTACK_REQUEST:
+        HandlePlayerAttack(clientId, body, bodySize);
+        break;
+
+        // 추후 추가:
+        // case PacketType::EXTRACTION_REQUEST:   ...
 
     default:
         Log::Warn("[Session %d] 알 수 없는 인게임 패킷 type=%d from cid=%d",
-                  sessionId, packetType, clientId);
+            sessionId, packetType, clientId);
         break;
     }
 }
@@ -159,7 +172,7 @@ void GameSession::Broadcast(int packetType, const void* body, int size, int exce
 {
     // 주의: 호출자가 mtx를 들고 있다고 가정하지 않음.
     // 본 단계에선 단순화를 위해 매번 lock.
-    std::lock_guard<std::mutex> lk(mtx);
+    std::lock_guard<std::recursive_mutex> lk(mtx);
     for (auto& kv : players)
     {
         if (kv.first == exceptClientId) continue;
@@ -179,13 +192,35 @@ void GameSession::HandlePlayerInput(int clientId, const char* body, int bodySize
     if (bodySize < (int)sizeof(PlayerInput)) return;
     const PlayerInput* in = reinterpret_cast<const PlayerInput*>(body);
 
-    std::lock_guard<std::mutex> lk(mtx);
+    std::lock_guard<std::recursive_mutex> lk(mtx);
     PlayerEntity* p = GetPlayer(clientId);
     if (!p) return;
+    if (p->hp <= 0) return;     // 죽은 플레이어 입력 무시
 
-    p->ApplyInput(in->posX, in->posY, in->posZ, in->rotY,
-                  in->moveX, in->moveY, in->sprint,
-                  in->timestamp, dt);
+    // 클라가 보낸 위치를 PositionValidator로 검증.
+    // - 텔레포트 거리 초과 → 직전 위치 유지
+    // - 벽 통과 시도 → 슬라이딩 또는 직전 위치
+    // 클라 walkSpeed=6, sprintSpeed=10. 10을 cap으로 사용.
+    Vec3 attempted(in->posX, in->posY, in->posZ);
+    Vec3 validated = PositionValidator::ValidateMove(
+        dungeon, p->position, attempted, 10.0f, dt);
+
+    p->ApplyInput(validated.x, validated.y, validated.z, in->rotY,
+        in->moveX, in->moveY, in->sprint,
+        in->timestamp, dt);
+}
+
+// ============================================================================
+//  내부: PLAYER_ATTACK_REQUEST 처리 (7단계)
+// ============================================================================
+
+void GameSession::HandlePlayerAttack(int clientId, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(PlayerAttackRequest)) return;
+    const PlayerAttackRequest* req = reinterpret_cast<const PlayerAttackRequest*>(body);
+
+    std::lock_guard<std::recursive_mutex> lk(mtx);
+    cr.HandleAttack(*this, clientId, *req);
 }
 
 PlayerEntity* GameSession::GetPlayer(int clientId)
@@ -219,13 +254,17 @@ void GameSession::TickLoop()
 void GameSession::TickStep(float dt)
 {
     std::vector<WorldSimulation::AttackEvent> attackEvents;
+    std::vector<MonsterAttackEvent>           attackPackets;
+    std::vector<PlayerDied>                   deathPackets;
 
-    // 1단계: 시뮬레이션 (몬스터 AI). lock 안에서 players access.
+    // 시뮬레이션 + 시야 갱신 모두 lock 안에서.
     {
-        std::lock_guard<std::mutex> lk(mtx);
-        worldSim.Step(dt, players, attackEvents);
+        std::lock_guard<std::recursive_mutex> lk(mtx);
 
-        // 몬스터의 공격 이벤트 처리: 플레이어 HP 차감 + 패킷용 데이터 준비
+        // 1) 몬스터 AI (위치 갱신 + 공격 결정)
+        worldSim.Step(dt, players, dungeon, attackEvents);
+
+        // 2) 몬스터 공격 결과 처리: 플레이어 HP 차감 + 패킷 데이터 준비
         for (const auto& ev : attackEvents)
         {
             auto it = players.find(ev.victimClientId);
@@ -235,175 +274,67 @@ void GameSession::TickStep(float dt)
 
             victim.hp -= ev.damage;
             if (victim.hp < 0) victim.hp = 0;
-        }
-    }
 
-    // 2단계: 스냅샷 만들기 (lock 안에서) 후 lock 풀고 broadcast.
-    std::vector<PlayerMove>           playerSnapshots;
-    std::vector<MonsterMove>          monsterSnapshots;
-    std::vector<MonsterAttackEvent>   attackPackets;
-    std::vector<PlayerDied>           deathPackets;
-    {
-        std::lock_guard<std::mutex> lk(mtx);
-
-        long long ts = duration_cast<milliseconds>(
-            system_clock::now().time_since_epoch()).count();
-
-        playerSnapshots.reserve(players.size());
-        for (auto& kv : players)
-        {
-            const PlayerEntity* p = kv.second.get();
-            PlayerMove pm{};
-            pm.clientId  = p->clientId;
-            pm.posX = p->position.x; pm.posY = p->position.y; pm.posZ = p->position.z;
-            pm.rotY = p->rotY;
-            pm.speed = p->speed;
-            pm.animState = p->animState;
-            pm.timestamp = ts;
-            playerSnapshots.push_back(pm);
-        }
-
-        const auto& mons = worldSim.GetMonsters();
-        monsterSnapshots.reserve(mons.size());
-        for (const auto& kv : mons)
-        {
-            const MonsterEntity& m = *kv.second;
-            if (m.aiState == AI_DEAD) continue;
-            MonsterMove mm{};
-            mm.monsterId = m.id;
-            mm.posX = m.position.x; mm.posY = m.position.y; mm.posZ = m.position.z;
-            mm.rotY = m.rotY;
-            mm.aiState = m.aiState;
-            mm.targetClientId = m.targetClientId;
-            mm.timestamp = ts;
-            monsterSnapshots.push_back(mm);
-        }
-
-        // 공격 이벤트 → 클라에 알릴 패킷 데이터로 변환
-        for (const auto& ev : attackEvents)
-        {
-            auto it = players.find(ev.victimClientId);
-            if (it == players.end()) continue;
-            const PlayerEntity& victim = *it->second;
+            // 7단계 후속: 몬스터 → 플레이어 공격 로그 (콘솔에서 추적 가능)
+            Log::Info("[MonsterAttack] mid=%d hit cid=%d dmg=%d hpAfter=%d%s",
+                ev.monsterId, ev.victimClientId, ev.damage, victim.hp,
+                victim.hp <= 0 ? " [PLAYER_DIED]" : "");
 
             MonsterAttackEvent mae{};
-            mae.monsterId      = ev.monsterId;
+            mae.monsterId = ev.monsterId;
             mae.victimClientId = ev.victimClientId;
-            mae.damage         = ev.damage;
-            mae.victimHpAfter  = victim.hp;
+            mae.damage = ev.damage;
+            mae.victimHpAfter = victim.hp;
             attackPackets.push_back(mae);
 
             if (victim.hp <= 0)
             {
                 PlayerDied pd{};
                 pd.victimId = ev.victimClientId;
-                pd.killerId = -ev.monsterId;       // 음수 = 몬스터
+                pd.killerId = -ev.monsterId;       // 음수 = 몬스터 ID
                 deathPackets.push_back(pd);
             }
         }
+
+        // 2-b) 원거리 투사체 이동 + 충돌 처리 (활/총).
+        //      벽/몬스터/플레이어 명중 시 데미지 + 소멸 패킷을 자체 broadcast.
+        projSystem.Update(*this, dt);
+
+        // 본인 시작 위치 재송신 (원격 클라는 active가 늦게 켜져 단발 송신을 놓침)
+        for (auto& kv : players)
+        {
+            PlayerEntity& pe = *kv.second;
+            if (pe.startPosResendTicks > 0 && pe.conn && pe.conn->active)
+            {
+                long long ts = duration_cast<milliseconds>(
+                    system_clock::now().time_since_epoch()).count();
+                PlayerMove pm{};
+                pm.clientId = pe.clientId;
+                pm.posX = pe.position.x;
+                pm.posY = pe.position.y;
+                pm.posZ = pe.position.z;
+                pm.rotY = pe.rotY;
+                pm.speed = 0.f;
+                pm.animState = 0;
+                pm.timestamp = ts;
+                pe.conn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
+                pe.startPosResendTicks--;
+            }
+        }
+
+        // 3) 시야 갱신 + ENTER/LEAVE/MOVE 패킷 송신.
+        //    각 플레이어의 viewedXxx를 새 시야와 비교하여 차이를 처리.
+        //    PLAYER_MOVE/MONSTER_MOVE는 시야 안 클라에게만 송신 (대역폭 절약).
+        im.UpdateAll(*this);
     }
 
-    // 3단계: broadcast (Broadcast 자체가 lock 잡음).
-    // 시야 처리 없는 단순 브로드캐스트 (6단계에서 InterestManagement로 교체).
-    for (const auto& pm : playerSnapshots)
-        Broadcast((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm), pm.clientId);
-    for (const auto& mm : monsterSnapshots)
-        Broadcast((int)PacketType::MONSTER_MOVE, &mm, sizeof(mm), 0);
+    // 시야 무관한 중요 이벤트는 전체 broadcast (몬스터 공격, 사망).
+    // Broadcast는 자체 lock 잡음.
     for (const auto& mae : attackPackets)
         Broadcast((int)PacketType::MONSTER_ATTACK_EVENT, &mae, sizeof(mae), 0);
     for (const auto& pd : deathPackets)
         Broadcast((int)PacketType::PLAYER_DIED, &pd, sizeof(pd), 0);
 }
 
-// ============================================================================
-//  ENTER_VIEW 헬퍼 (5단계: 시야 처리 없이 일괄 송신)
-// ============================================================================
-
-void GameSession::SendInitialEnterViews(int clientId)
-{
-    // 호출자가 mtx 잠긴 상태. 추가 lock 안 함.
-    auto it = players.find(clientId);
-    if (it == players.end()) return;
-    SessionClientConnection* targetConn = it->second->conn;
-    if (!targetConn || !targetConn->active) return;
-
-    // 1) 다른 모든 플레이어 정보 보내기
-    for (auto& kv : players)
-    {
-        if (kv.first == clientId) continue;
-        const PlayerEntity& p = *kv.second;
-
-        PlayerEnterView ev{};
-        ev.clientId = p.clientId;
-        std::strncpy(ev.playerName, p.playerName, sizeof(ev.playerName) - 1);
-        ev.posX = p.position.x;
-        ev.posY = p.position.y;
-        ev.posZ = p.position.z;
-        ev.rotY = p.rotY;
-        ev.hp = p.hp;
-        ev.maxHp = p.maxHp;
-        targetConn->SendPacket((int)PacketType::PLAYER_ENTER_VIEW, &ev, sizeof(ev));
-    }
-
-    // 2) 모든 몬스터 정보 보내기
-    const auto& monsters = worldSim.GetMonsters();
-    for (const auto& kv : monsters)
-    {
-        const MonsterEntity& m = *kv.second;
-        if (m.aiState == AI_DEAD) continue;
-
-        MonsterEnterView ev{};
-        ev.monsterId   = m.id;
-        ev.monsterKind = m.kind;
-        ev.posX = m.position.x;
-        ev.posY = m.position.y;
-        ev.posZ = m.position.z;
-        ev.rotY = m.rotY;
-        ev.hp = m.hp;
-        ev.maxHp = m.maxHp;
-        targetConn->SendPacket((int)PacketType::MONSTER_ENTER_VIEW, &ev, sizeof(ev));
-    }
-
-    // 3) 본인의 시작 위치를 PLAYER_MOVE로 즉시 알림.
-    //    클라는 첫 본인 PLAYER_MOVE를 받으면 transform.position을 갱신.
-    //    이게 없으면 클라가 50ms 후 본인 위치를 (0,0.1,0)으로 보내서 시작방 위치 손실됨.
-    {
-        const PlayerEntity& me = *it->second;
-        long long ts = duration_cast<milliseconds>(
-            system_clock::now().time_since_epoch()).count();
-        PlayerMove pm{};
-        pm.clientId  = me.clientId;
-        pm.posX = me.position.x;
-        pm.posY = me.position.y;
-        pm.posZ = me.position.z;
-        pm.rotY = me.rotY;
-        pm.speed = 0.f;
-        pm.animState = 0;
-        pm.timestamp = ts;
-        targetConn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
-    }
-}
-
-void GameSession::SendPlayerEnterViewToOthers(const PlayerEntity& p, int exceptClientId)
-{
-    // 호출자가 mtx 잠긴 상태.
-    PlayerEnterView ev{};
-    ev.clientId = p.clientId;
-    std::strncpy(ev.playerName, p.playerName, sizeof(ev.playerName) - 1);
-    ev.posX = p.position.x;
-    ev.posY = p.position.y;
-    ev.posZ = p.position.z;
-    ev.rotY = p.rotY;
-    ev.hp = p.hp;
-    ev.maxHp = p.maxHp;
-
-    for (auto& kv : players)
-    {
-        if (kv.first == exceptClientId) continue;
-        SessionClientConnection* c = kv.second->conn;
-        if (c && c->active)
-        {
-            c->SendPacket((int)PacketType::PLAYER_ENTER_VIEW, &ev, sizeof(ev));
-        }
-    }
-}
+// 5단계의 SendInitialEnterViews / SendPlayerEnterViewToOthers 헬퍼는 제거됨.
+// 6단계부터 InterestManagement.OnPlayerJoin/OnPlayerLeave가 통합 처리.

@@ -12,17 +12,18 @@ PlayerEntity::PlayerEntity(int cid)
     , hp(100)
     , maxHp(100)
     , lastInputTimestamp(0)
+    , lastAttackTime(0)
     , conn(nullptr)
 {
     playerName[0] = '\0';
 }
 
 void PlayerEntity::ApplyInput(float posX, float posY, float posZ,
-                              float yaw,
-                              float moveX, float moveY,
-                              int sprint,
-                              long long timestamp,
-                              float dt)
+    float yaw,
+    float moveX, float moveY,
+    int sprint,
+    long long timestamp,
+    float dt)
 {
     // 직전 위치 저장 (속도 계산용)
     float prevX = position.x;
@@ -32,7 +33,7 @@ void PlayerEntity::ApplyInput(float posX, float posY, float posZ,
     position.x = posX;
     position.y = posY;
     position.z = posZ;
-    rotY       = yaw;
+    rotY = yaw;
 
     // 애니메이션 동기화에 쓸 평면 속도 (m/s)
     if (dt > 1e-4f)

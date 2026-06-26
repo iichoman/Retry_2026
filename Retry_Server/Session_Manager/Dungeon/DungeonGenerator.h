@@ -5,6 +5,7 @@
 #include <vector>
 #include <memory>
 #include <unordered_set>
+#include <unordered_map>
 
 // ============================================================================
 //  DungeonGenerator (서버 측)
@@ -31,27 +32,27 @@ class DungeonGenerator
 {
 public:
     // 인스펙터 디폴트 값들과 동일 (DungeonGenerator_ChunkMesh.cs)
-    int   mapSize                 = 750;
-    int   mapHeight               = 10;
-    int   baseRoomSize            = 50;
-    int   targetRoomCount         = 20;
-    int   minLeafSize             = 100;
+    int   mapSize = 750;
+    int   mapHeight = 10;
+    int   baseRoomSize = 50;
+    int   targetRoomCount = 20;
+    int   minLeafSize = 100;
     float specialRoomLayoutChance = 0.45f;
-    int   minimumLayoutInset      = 2;
+    int   minimumLayoutInset = 2;
 
-    int   bossRoomCount           = 1;
-    int   bossRoomSizeX           = 90;
-    int   bossRoomSizeZ           = 90;
+    int   bossRoomCount = 1;
+    int   bossRoomSizeX = 90;
+    int   bossRoomSizeZ = 90;
     int   bossRoomConnectionCount = 1;
-    int   bossRoomOverlapPadding  = 4;
+    int   bossRoomOverlapPadding = 4;
 
-    int   corridorWidth           = 10;
+    int   corridorWidth = 10;
 
-    int   startRoomEdgeMargin     = 10;
-    int   startRoomThickness      = 5;        // C# StartRoomManager의 thickness 인자
-    int   teamCount               = 16;       // 클라 인스펙터와 일치 (1~16 범위)
+    int   startRoomEdgeMargin = 10;
+    int   startRoomThickness = 5;        // C# StartRoomManager의 thickness 인자
+    int   teamCount = 16;       // 클라 인스펙터와 일치 (1~16 범위)
 
-    bool  centerMapAtOrigin       = true;        // 클라 인스펙터와 반드시 일치!
+    bool  centerMapAtOrigin = true;        // 클라 인스펙터와 반드시 일치!
 
     // 결과 데이터 (Generate 호출 후 채워짐)
     std::vector<Room>                     rooms;
@@ -75,8 +76,30 @@ public:
     bool IsWallTile(const IntVec3& tile)  const;
     bool IsSolidTile(const IntVec3& tile) const;
 
+    // 방 기반 AOI 지원 (Zone 방식)
+    // 월드 좌표가 속한 방의 id 반환. 복도/방 밖이면 -1.
+    int  RoomIdAt(const Vec3& worldPos) const;
+    // 두 방이 인접(neighbors)한지. 둘 중 하나라도 -1이면 false.
+    bool AreRoomsAdjacent(int roomA, int roomB) const;
+
+    // ── 포탈 그래프 AOI (방+복도 노드, 1-hop 가시성) ──
+    // 노드 id 체계: 방 = roomId(0..N-1), 복도 = CORRIDOR_NODE_BASE + corridorIndex.
+    static constexpr int CORRIDOR_NODE_BASE = 100000;
+
+    // 월드 좌표가 속한 노드 id. 방이면 roomId, 복도면 CORRIDOR_NODE_BASE+idx, 미분류 -1.
+    int  NodeIdAt(const Vec3& worldPos) const;
+    // 두 노드가 같거나 포탈로 직접 연결(1-hop)되어 있는지.
+    bool AreNodesAdjacent(int nodeA, int nodeB) const;
+    // 복도 노드 여부 (디버그/로깅용).
+    bool IsCorridorNode(int nodeId) const { return nodeId >= CORRIDOR_NODE_BASE; }
+
 private:
     std::unique_ptr<BSPNode>  root;
+
+    // 포탈 그래프 AOI 데이터 (Generate 끝에서 BuildNodeGraph가 채움)
+    std::unordered_map<IntVec3, int>                 tileToNode_;   // 타일 → 노드 id
+    std::unordered_map<int, std::unordered_set<int>> nodeAdj_;      // 노드 → 인접 노드들
+    void  BuildNodeGraph();
 
     // BSP / 방 생성
     void  SplitToTarget(BSPNode* node, int targetCount, int minSize, CSharpRandom& random);
@@ -100,7 +123,7 @@ private:
     Room* FindNearestRoom(const Vec3& startCenter);
     std::vector<Room*> FindNearestRooms(const Vec3& startCenter, int count, const Room* excludedRoom);
     void  AddHorizontalCorridor(std::unordered_set<IntVec3>& dst, int x1, int x2, int z);
-    void  AddVerticalCorridor  (std::unordered_set<IntVec3>& dst, int z1, int z2, int x);
+    void  AddVerticalCorridor(std::unordered_set<IntVec3>& dst, int z1, int z2, int x);
 
     // 타일 수집
     void  AddRoomTiles();
@@ -134,12 +157,12 @@ private:
 
     // 시작 방 (StartRoomManager.cs 1:1 포팅)
     std::vector<StartRoom> BuildStartRoomCandidates(int mapSizeArg, int roomSize,
-                                                     int edgeMargin, int thickness);
+        int edgeMargin, int thickness);
     std::vector<int>       PickStartSlots(int teamCountArg, int seed);
     void                   AssignTeams(std::vector<StartRoom>& candidates,
-                                       int teamCountArg, int seed);
+        int teamCountArg, int seed);
     static StartRoom       CreateStartRoom(int slotIndex, IntVec3 position,
-                                           int roomSize, int thickness, float yawDegrees);
+        int roomSize, int thickness, float yawDegrees);
     static std::vector<Vec3> BuildPlayerSpawnPositions(const Vec3& anchor,
-                                                        float yawDegrees, int roomSize);
+        float yawDegrees, int roomSize);
 };

@@ -39,10 +39,12 @@ public:
 
     // 매 틱 호출. session.mtx 잠긴 상태에서.
     // 인자로 플레이어 컨테이너를 받아 AI가 가까운 플레이어 감지/추격.
+    // dungeon은 몬스터 이동 검증(PositionValidator)에 사용.
     // 공격 이벤트는 outAttacks에 누적 (호출자가 처리).
     void Step(float dt,
-              std::unordered_map<int, std::unique_ptr<PlayerEntity>>& players,
-              std::vector<AttackEvent>& outAttacks);
+        std::unordered_map<int, std::unique_ptr<PlayerEntity>>& players,
+        const DungeonGenerator& dungeon,
+        std::vector<AttackEvent>& outAttacks);
 
     const std::unordered_map<int, std::unique_ptr<MonsterEntity>>& GetMonsters() const
     {
@@ -58,11 +60,11 @@ private:
 
     // AI 본체 (몬스터 1마리 처리)
     void StepMonsterAI(MonsterEntity& m, float dt, long long nowMs,
-                        std::unordered_map<int, std::unique_ptr<PlayerEntity>>& players,
-                        std::vector<AttackEvent>& outAttacks);
+        std::unordered_map<int, std::unique_ptr<PlayerEntity>>& players,
+        const DungeonGenerator& dungeon,
+        std::vector<AttackEvent>& outAttacks);
 
     // 가장 가까운 살아있는 플레이어 ID 반환 (감지 거리 안). 없으면 0.
     int FindNearestPlayerInRange(const MonsterEntity& m,
         std::unordered_map<int, std::unique_ptr<PlayerEntity>>& players);
 };
-

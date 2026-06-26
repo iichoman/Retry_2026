@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -76,10 +76,13 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <Optimization>MaxSpeed</Optimization>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -90,10 +93,11 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
@@ -102,10 +106,13 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <Optimization>MaxSpeed</Optimization>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
+      <BasicRuntimeChecks>Default</BasicRuntimeChecks>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
@@ -116,35 +123,45 @@
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>;_CRT_SECURE_NO_WARNINGS</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
+      <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
-      <GenerateDebugInformation>true</GenerateDebugInformation>
+      <GenerateDebugInformation>DebugFastLink</GenerateDebugInformation>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="CombatResolver.cpp" />
     <ClCompile Include="Dungeon\CSharpRandom.cpp" />
     <ClCompile Include="Dungeon\DungeonGenerator.cpp" />
     <ClCompile Include="Dungeon\DungeonTypes.cpp" />
     <ClCompile Include="GameSession.cpp" />
+    <ClCompile Include="InterestManagement.cpp" />
     <ClCompile Include="IpcReceiver.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="MonsterEntity.cpp" />
     <ClCompile Include="NetworkAcceptor.cpp" />
     <ClCompile Include="PlayerEntity.cpp" />
+    <ClCompile Include="PositionValidator.cpp" />
+    <ClCompile Include="ProjectileSystem.cpp" />
     <ClCompile Include="SessionClientConnection.cpp" />
     <ClCompile Include="SessionRegistry.cpp" />
     <ClCompile Include="WorldSimulation.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="CombatResolver.h" />
     <ClInclude Include="Dungeon\CSharpRandom.h" />
     <ClInclude Include="Dungeon\DungeonGenerator.h" />
     <ClInclude Include="Dungeon\DungeonTypes.h" />
     <ClInclude Include="GameSession.h" />
+    <ClInclude Include="InterestManagement.h" />
     <ClInclude Include="IpcReceiver.h" />
     <ClInclude Include="MonsterEntity.h" />
     <ClInclude Include="NetworkAcceptor.h" />
     <ClInclude Include="PlayerEntity.h" />
+    <ClInclude Include="PositionValidator.h" />
+    <ClInclude Include="ProjectileEntity.h" />
+    <ClInclude Include="ProjectileSystem.h" />
     <ClInclude Include="SessionClientConnection.h" />
     <ClInclude Include="SessionRegistry.h" />
     <ClInclude Include="WorldSimulation.h" />

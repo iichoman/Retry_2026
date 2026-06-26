@@ -21,7 +21,7 @@ MonsterEntity::MonsterEntity(int monsterId, int monsterKind, const Vec3& spawnPo
         detectRange       = 25.0f;
         attackRange       = 4.0f;
         attackCooldownMs  = 1500.0f;
-        attackDamage      = 50;
+        attackDamage      = 0; // 50
         break;
 
     case MONSTER_ELITE:
@@ -30,7 +30,7 @@ MonsterEntity::MonsterEntity(int monsterId, int monsterKind, const Vec3& spawnPo
         detectRange       = 18.0f;
         attackRange       = 2.5f;
         attackCooldownMs  = 1000.0f;
-        attackDamage      = 25;
+        attackDamage      = 0; // 25
         break;
 
     case MONSTER_NORMAL:
@@ -40,7 +40,7 @@ MonsterEntity::MonsterEntity(int monsterId, int monsterKind, const Vec3& spawnPo
         detectRange       = 12.0f;
         attackRange       = 2.0f;
         attackCooldownMs  = 1200.0f;
-        attackDamage      = 10;
+        attackDamage      = 0; // 10
         break;
     }
 }

@@ -54,6 +54,18 @@
     <ClCompile Include="WorldSimulation.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="InterestManagement.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="CombatResolver.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="PositionValidator.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="ProjectileSystem.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="Dungeon\CSharpRandom.h">
@@ -87,6 +99,21 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="WorldSimulation.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="InterestManagement.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="CombatResolver.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="PositionValidator.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="ProjectileSystem.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="ProjectileEntity.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>
