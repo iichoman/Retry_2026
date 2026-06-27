@@ -12,13 +12,19 @@
 using namespace std::chrono;
 
 GameSession::GameSession(int sid, int hid, int seed,
-    const std::vector<int>& allowedPlayerIds)
+    const std::vector<int>& allowedPlayerIds,
+    const std::vector<int>& playerTeams)
     : sessionId(sid)
     , hostClientId(hid)
     , mapSeed(seed)
     , running(false)
 {
-    for (int id : allowedPlayerIds) allowedPlayers.insert(id);
+    for (size_t i = 0; i < allowedPlayerIds.size(); ++i)
+    {
+        int id = allowedPlayerIds[i];
+        allowedPlayers.insert(id);
+        playerTeamMap[id] = (i < playerTeams.size()) ? playerTeams[i] : 0;
+    }
 }
 
 GameSession::~GameSession()
@@ -75,14 +81,22 @@ void GameSession::AttachClient(int clientId, SessionClientConnection* conn)
     else
     {
         auto pe = std::make_unique<PlayerEntity>(clientId);
-        // 시작 위치: 본인 팀의 시작방의 정확한 spawn 좌표 사용 (StartRoomManager 1:1)
-        // 입장 순서로 팀 슬롯 배정 (clientId 별도 전달 없으니 임시).
-        // worldOffset 적용해서 월드 좌표로 변환.
+        // 시작 위치: 로비에서 고른 팀의 시작방 spawn 좌표 사용.
         if (!dungeon.assignedStartRooms.empty())
         {
-            int playerIndex = (int)players.size();        // 0,1,2,...
-            int teamSlot = playerIndex / PLAYERS_PER_TEAM;     // 0,0,0, 1,1,1, ...
-            int slotInTeam = playerIndex % PLAYERS_PER_TEAM;     // 0,1,2, 0,1,2, ...
+            // 로비 선택 팀 (없으면 0)
+            auto tIt = playerTeamMap.find(clientId);
+            int teamSlot = (tIt != playerTeamMap.end()) ? tIt->second : 0;
+
+            // 같은 팀에 이미 들어와 있는 인원 수 = 이 팀에서의 슬롯(0,1,2)
+            int slotInTeam = 0;
+            for (auto& kv : players)
+            {
+                auto t2 = playerTeamMap.find(kv.first);
+                int otherTeam = (t2 != playerTeamMap.end()) ? t2->second : 0;
+                if (otherTeam == teamSlot) ++slotInTeam;
+            }
+
             teamSlot = teamSlot % (int)dungeon.assignedStartRooms.size();
 
             const StartRoom& sr = dungeon.assignedStartRooms[teamSlot];

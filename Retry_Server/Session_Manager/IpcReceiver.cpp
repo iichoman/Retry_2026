@@ -13,7 +13,8 @@
 
 IpcReceiver::IpcReceiver(SessionRegistry* r, int port)
     : registry(r), listenPort(port), listenSock(INVALID_SOCKET), running(false)
-{}
+{
+}
 
 IpcReceiver::~IpcReceiver() { Stop(); }
 
@@ -28,9 +29,9 @@ bool IpcReceiver::Start()
 
     sockaddr_in addr;
     std::memset(&addr, 0, sizeof(addr));
-    addr.sin_family      = AF_INET;
+    addr.sin_family = AF_INET;
     addr.sin_addr.s_addr = inet_addr("127.0.0.1");      // 로컬만
-    addr.sin_port        = htons((u_short)listenPort);
+    addr.sin_port = htons((u_short)listenPort);
 
     if (bind(listenSock, (sockaddr*)&addr, sizeof(addr)) != 0)
     {
@@ -104,14 +105,17 @@ void IpcReceiver::HandleOneClient(SOCKET cs)
     IpcCreateSession* req = reinterpret_cast<IpcCreateSession*>(buf + sizeof(*h));
 
     std::vector<int> playerIds;
+    std::vector<int> playerTeams;
     playerIds.reserve(req->playerCount);
+    playerTeams.reserve(req->playerCount);
     for (int i = 0; i < req->playerCount && i < MAX_SESSION_PLAYERS; ++i)
     {
         playerIds.push_back(req->playerIds[i]);
+        playerTeams.push_back(req->playerTeams[i]);
     }
 
     bool ok = registry->CreateSession(req->sessionId, req->hostClientId,
-                                      req->mapSeed, playerIds);
+        req->mapSeed, playerIds, playerTeams);
     if (!ok)
     {
         Log::Warn("세션 생성 실패: id=%d", req->sessionId);
@@ -120,7 +124,7 @@ void IpcReceiver::HandleOneClient(SOCKET cs)
     }
 
     Log::Info("IPC: 세션 %d 생성 (host=%d seed=%d 인원=%d)",
-              req->sessionId, req->hostClientId, req->mapSeed, req->playerCount);
+        req->sessionId, req->hostClientId, req->mapSeed, req->playerCount);
 
     // 성공 echo (메인 서버가 이걸 보고 SESSION_ASSIGN 송신)
     Net::SendPacket(cs, (int)PacketType::IPC_CREATE_SESSION, req, sizeof(*req));

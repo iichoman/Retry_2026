@@ -14,9 +14,10 @@ SessionDispatcher::SessionDispatcher(const std::string& sessionMgrIp, int sessio
 }
 
 bool SessionDispatcher::RequestSessionCreate(int sessionId,
-                                             int hostClientId,
-                                             int mapSeed,
-                                             const std::vector<int>& playerIds)
+    int hostClientId,
+    int mapSeed,
+    const std::vector<int>& playerIds,
+    const std::vector<int>& playerTeams)
 {
     if ((int)playerIds.size() > MAX_SESSION_PLAYERS)
     {
@@ -43,7 +44,7 @@ bool SessionDispatcher::RequestSessionCreate(int sessionId,
     if (connect(sock, (sockaddr*)&addr, sizeof(addr)) != 0)
     {
         Log::Error("세션 매니저 연결 실패: %s:%d (err=%d)",
-                   ip.c_str(), port, WSAGetLastError());
+            ip.c_str(), port, WSAGetLastError());
         closesocket(sock);
         return false;
     }
@@ -51,18 +52,19 @@ bool SessionDispatcher::RequestSessionCreate(int sessionId,
     // 2. IpcCreateSession 패킷 구성 및 송신
     IpcCreateSession ipc;
     std::memset(&ipc, 0, sizeof(ipc));
-    ipc.sessionId    = sessionId;
+    ipc.sessionId = sessionId;
     ipc.hostClientId = hostClientId;
-    ipc.mapSeed      = mapSeed;
-    ipc.playerCount  = (int)playerIds.size();
+    ipc.mapSeed = mapSeed;
+    ipc.playerCount = (int)playerIds.size();
     for (int i = 0; i < ipc.playerCount; ++i)
     {
         ipc.playerIds[i] = playerIds[i];
+        ipc.playerTeams[i] = (i < (int)playerTeams.size()) ? playerTeams[i] : 0;
     }
 
     bool sendOk = Net::SendPacket(sock,
-                                  static_cast<int>(PacketType::IPC_CREATE_SESSION),
-                                  &ipc, sizeof(ipc));
+        static_cast<int>(PacketType::IPC_CREATE_SESSION),
+        &ipc, sizeof(ipc));
     if (!sendOk)
     {
         Log::Error("IPC_CREATE_SESSION 송신 실패");

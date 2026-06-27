@@ -26,7 +26,8 @@ public:
 
     // 세션 생성. 성공 시 true. 이미 있는 sessionId면 실패.
     bool CreateSession(int sessionId, int hostClientId, int mapSeed,
-                       const std::vector<int>& playerIds);
+        const std::vector<int>& playerIds,
+        const std::vector<int>& playerTeams);
 
     // 인증: sessionId 존재 + clientId가 그 세션의 멤버여야 통과.
     // 통과 시 GameSession 포인터 반환, 실패 시 nullptr.

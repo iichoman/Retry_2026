@@ -68,7 +68,7 @@ void LobbyManager::Shutdown()
 // ============================================================================
 
 void LobbyManager::HandlePacket(ClientConnection* conn, int packetType,
-                                const char* body, int bodySize)
+    const char* body, int bodySize)
 {
     std::lock_guard<std::mutex> lk(mtx);
 
@@ -90,9 +90,15 @@ void LobbyManager::HandlePacket(ClientConnection* conn, int packetType,
     case PacketType::GAME_START_REQUEST:
         HandleGameStart(conn);
         break;
+    case PacketType::ROOM_LEAVE_REQUEST:
+        HandleRoomLeave(conn);
+        break;
+    case PacketType::ROOM_SELECT_TEAM_REQUEST:
+        HandleSelectTeam(conn, body, bodySize);
+        break;
     default:
         Log::Warn("로비에서 알 수 없는 패킷 type=%d from clientId=%d",
-                  packetType, conn->clientId);
+            packetType, conn->clientId);
         break;
     }
 }
@@ -121,7 +127,7 @@ void LobbyManager::HandleLogin(ClientConnection* conn, const char* body, int bod
     std::strncpy(conn->playerName, req->playerName, sizeof(conn->playerName) - 1);
     conn->playerName[sizeof(conn->playerName) - 1] = '\0';
     conn->clientId = newId;
-    conn->state    = ClientConnection::ST_AUTHENTICATED;
+    conn->state = ClientConnection::ST_AUTHENTICATED;
 
     // pending → authenticated 이동
     std::unique_ptr<ClientConnection> moved;
@@ -144,7 +150,7 @@ void LobbyManager::HandleLogin(ClientConnection* conn, const char* body, int bod
     // 응답
     LoginResult res;
     std::memset(&res, 0, sizeof(res));
-    res.success  = 1;
+    res.success = 1;
     res.clientId = newId;
     conn->SendPacket((int)PacketType::LOGIN_RESULT, &res, sizeof(res));
 
@@ -173,19 +179,21 @@ void LobbyManager::HandleRoomCreate(ClientConnection* conn, const char* body, in
 
     int newRoomId = nextRoomId++;
     auto room = std::make_unique<RoomData>(newRoomId, req->roomName,
-                                           conn->clientId, MAX_SESSION_PLAYERS);
+        conn->clientId, MAX_SESSION_PLAYERS);
     rooms[newRoomId] = std::move(room);
 
     conn->currentRoomId = newRoomId;
-    conn->state         = ClientConnection::ST_IN_ROOM;
+    conn->state = ClientConnection::ST_IN_ROOM;
 
     RoomCreateResult res{};
     res.success = 1;
-    res.roomId  = newRoomId;
+    res.roomId = newRoomId;
     conn->SendPacket((int)PacketType::ROOM_CREATE_RESULT, &res, sizeof(res));
 
+    BroadcastRoomState(GetRoom(newRoomId));   // 본인에게 초기 방 현황(ROOM_STATE)
+
     Log::Info("방 생성: roomId=%d host=%d name=\"%s\"",
-              newRoomId, conn->clientId, req->roomName);
+        newRoomId, conn->clientId, req->roomName);
 }
 
 // ============================================================================
@@ -223,19 +231,22 @@ void LobbyManager::HandleRoomJoin(ClientConnection* conn, const char* body, int 
     {
         room->AddMember(conn->clientId);
         conn->currentRoomId = req->roomId;
-        conn->state         = ClientConnection::ST_IN_ROOM;
+        conn->state = ClientConnection::ST_IN_ROOM;
 
-        res.success        = 1;
-        res.hostClientId   = room->hostClientId;
+        res.success = 1;
+        res.hostClientId = room->hostClientId;
         res.currentPlayers = room->CurrentPlayers();
-        res.maxPlayers     = room->maxPlayers;
+        res.maxPlayers = room->maxPlayers;
 
         Log::Info("방 참가: cid=%d roomId=%d (now %d/%d)",
-                  conn->clientId, req->roomId,
-                  room->CurrentPlayers(), room->maxPlayers);
+            conn->clientId, req->roomId,
+            room->CurrentPlayers(), room->maxPlayers);
     }
 
     conn->SendPacket((int)PacketType::ROOM_JOIN_RESULT, &res, sizeof(res));
+
+    if (res.success)
+        BroadcastRoomState(GetRoom(req->roomId));   // 새 멤버 포함 전원에게 현황 push
 }
 
 // ============================================================================
@@ -252,10 +263,10 @@ void LobbyManager::HandleRoomList(ClientConnection* conn)
         if (kv.second->isStarting) continue;       // 시작 중인 방은 안 보임
 
         RoomListEntry& e = res.rooms[idx++];
-        e.roomId         = kv.second->roomId;
-        e.hostClientId   = kv.second->hostClientId;
+        e.roomId = kv.second->roomId;
+        e.hostClientId = kv.second->hostClientId;
         e.currentPlayers = kv.second->CurrentPlayers();
-        e.maxPlayers     = kv.second->maxPlayers;
+        e.maxPlayers = kv.second->maxPlayers;
         std::strncpy(e.roomName, kv.second->roomName.c_str(), sizeof(e.roomName) - 1);
     }
     res.count = idx;
@@ -276,7 +287,7 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
     if (room->hostClientId != conn->clientId)
     {
         Log::Warn("호스트 아닌 클라가 GAME_START 시도: cid=%d roomId=%d",
-                  conn->clientId, room->roomId);
+            conn->clientId, room->roomId);
         return;
     }
     if (room->isStarting) return;
@@ -284,14 +295,16 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
     room->isStarting = true;
 
     int sessionId = nextSessionId++;
-    int mapSeed   = (int)((uintptr_t)room ^ sessionId ^ 0x12345);
+    int mapSeed = (int)((uintptr_t)room ^ sessionId ^ 0x12345);
     if (mapSeed < 0) mapSeed = -mapSeed;
 
+    room->AutoAssignUnassignedTeams();           // 미배정 멤버를 빈 팀 슬롯에 자동 배정
     std::vector<int> playerIds = room->memberIds;
+    std::vector<int> playerTeams = room->memberTeams;
 
     // 세션 매니저에게 IPC로 세션 생성 요청 (동기 대기)
     bool ok = dispatcher->RequestSessionCreate(sessionId, room->hostClientId,
-                                                mapSeed, playerIds);
+        mapSeed, playerIds, playerTeams);
     if (!ok)
     {
         Log::Error("세션 생성 실패 sessionId=%d", sessionId);
@@ -301,8 +314,8 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
 
     // 모든 멤버에게 SESSION_ASSIGN 송신
     SessionAssignData assign{};
-    assign.sessionId         = sessionId;
-    assign.mapSeed           = mapSeed;
+    assign.sessionId = sessionId;
+    assign.mapSeed = mapSeed;
     assign.sessionServerPort = 9001;
     std::strncpy(assign.sessionServerIP, "127.0.0.1", sizeof(assign.sessionServerIP) - 1);
 
@@ -317,7 +330,7 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
     }
 
     Log::Info("게임 시작: sessionId=%d host=%d seed=%d 인원=%d",
-              sessionId, room->hostClientId, mapSeed, (int)playerIds.size());
+        sessionId, room->hostClientId, mapSeed, (int)playerIds.size());
 
     // 방은 곧 비워질 거라 정리는 클라들이 disconnect 할 때 자연스럽게 됨.
     // 여기선 명시적으로 안 지움 (멤버들이 떠나면서 자동 정리).
@@ -360,9 +373,74 @@ void LobbyManager::RemoveClientFromRoom(int clientId)
         Log::Info("빈 방 삭제: roomId=%d", rid);
         rooms.erase(rid);
     }
-    else if (room->hostClientId == clientId)
+    else
     {
-        room->PromoteNewHostIfNeeded();
-        Log::Info("호스트 변경: roomId=%d → 새 host=%d", rid, room->hostClientId);
+        if (room->hostClientId == clientId)
+        {
+            room->PromoteNewHostIfNeeded();
+            Log::Info("호스트 변경: roomId=%d → 새 host=%d", rid, room->hostClientId);
+        }
+        BroadcastRoomState(room);     // 남은 멤버들에게 갱신된 현황 push
+    }
+}
+
+// ============================================================================
+//  핸들러: ROOM_LEAVE / SELECT_TEAM  +  방 현황 broadcast
+// ============================================================================
+
+void LobbyManager::HandleRoomLeave(ClientConnection* conn)
+{
+    if (conn->currentRoomId == 0) return;
+
+    RemoveClientFromRoom(conn->clientId);                 // 제거 + 남은 멤버에게 ROOM_STATE
+    conn->state = ClientConnection::ST_AUTHENTICATED;     // 다시 로비 상태로
+
+    RoomLeaveResult res{};
+    res.success = 1;
+    conn->SendPacket((int)PacketType::ROOM_LEAVE_RESULT, &res, sizeof(res));
+    Log::Info("방 나가기: cid=%d", conn->clientId);
+}
+
+void LobbyManager::HandleSelectTeam(ClientConnection* conn, const char* body, int bodySize)
+{
+    if (conn->currentRoomId == 0) return;
+    if (bodySize < (int)sizeof(RoomSelectTeamRequest)) return;
+    const RoomSelectTeamRequest* req = reinterpret_cast<const RoomSelectTeamRequest*>(body);
+
+    RoomData* room = GetRoom(conn->currentRoomId);
+    if (!room || room->isStarting) return;
+
+    bool ok = room->SetTeam(conn->clientId, req->teamId);
+    if (ok)
+        BroadcastRoomState(room);   // 전원에게 갱신된 팀 현황
+    // 실패(정원 초과 등)는 무시 → 클라는 다음 ROOM_STATE로 정정됨
+}
+
+void LobbyManager::BroadcastRoomState(RoomData* room)
+{
+    if (!room) return;
+
+    RoomStateData st;
+    std::memset(&st, 0, sizeof(st));
+    st.roomId = room->roomId;
+    st.hostClientId = room->hostClientId;
+
+    int n = 0;
+    for (size_t i = 0; i < room->memberIds.size() && n < MAX_SESSION_PLAYERS; ++i)
+    {
+        int cid = room->memberIds[i];
+        RoomMemberEntry& m = st.members[n++];
+        m.clientId = cid;
+        m.teamId = (i < room->memberTeams.size()) ? room->memberTeams[i] : TEAM_UNASSIGNED;
+        m.isHost = (cid == room->hostClientId) ? 1 : 0;
+        ClientConnection* mc = GetClient(cid);
+        if (mc) std::strncpy(m.playerName, mc->playerName, sizeof(m.playerName) - 1);
+    }
+    st.memberCount = n;
+
+    for (int cid : room->memberIds)
+    {
+        ClientConnection* mc = GetClient(cid);
+        if (mc) mc->SendPacket((int)PacketType::ROOM_STATE, &st, sizeof(st));
     }
 }

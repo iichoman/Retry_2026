@@ -45,7 +45,8 @@ public:
     int                         mapSeed;
 
     GameSession(int sid, int hid, int seed,
-        const std::vector<int>& allowedPlayerIds);
+        const std::vector<int>& allowedPlayerIds,
+        const std::vector<int>& playerTeams);
     ~GameSession();
 
     void Start();
@@ -61,6 +62,7 @@ public:
 
 private:
     std::unordered_set<int>                                    allowedPlayers;
+    std::unordered_map<int, int>                               playerTeamMap;   // clientId → 로비 선택 팀(0..MAX_TEAMS-1)
     std::recursive_mutex                                       mtx;
     std::unordered_map<int, std::unique_ptr<PlayerEntity>>     players;
 

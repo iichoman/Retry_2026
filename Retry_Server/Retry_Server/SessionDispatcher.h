@@ -23,9 +23,10 @@ public:
 
     // 세션 생성 요청. 동기적으로 응답까지 대기. 성공 여부 반환.
     bool RequestSessionCreate(int sessionId,
-                              int hostClientId,
-                              int mapSeed,
-                              const std::vector<int>& playerIds);
+        int hostClientId,
+        int mapSeed,
+        const std::vector<int>& playerIds,
+        const std::vector<int>& playerTeams);
 
 private:
     std::string ip;

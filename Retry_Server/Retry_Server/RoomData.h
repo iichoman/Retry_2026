@@ -18,6 +18,7 @@ public:
     int                hostClientId;
     int                maxPlayers;
     std::vector<int>   memberIds;        // 호스트도 포함
+    std::vector<int>   memberTeams;      // memberIds와 1:1 정렬. -1=미배정, 0..MAX_TEAMS-1
     bool               isStarting;       // GAME_START 처리 중 (재요청 방지)
 
     RoomData(int id, const std::string& name, int hostId, int maxP);
@@ -30,6 +31,13 @@ public:
     int  CurrentPlayers()      const { return (int)memberIds.size(); }
     bool IsFull()              const { return CurrentPlayers() >= maxPlayers; }
     bool IsEmpty()             const { return memberIds.empty(); }
+
+    // 팀 선택. 정원 초과면 실패. teamId<0 이면 미배정으로 되돌림(허용).
+    bool SetTeam(int clientId, int teamId);
+    int  GetTeam(int clientId) const;       // 없으면 -1
+    int  CountInTeam(int teamId) const;     // 해당 팀 인원
+    // 미배정 멤버를 빈 팀 슬롯에 자동 배정(게임 시작 직전 호출).
+    void AutoAssignUnassignedTeams();
 
     // 호스트가 떠나면 다음 멤버를 호스트로 승격. 빈 방이면 false.
     bool PromoteNewHostIfNeeded();

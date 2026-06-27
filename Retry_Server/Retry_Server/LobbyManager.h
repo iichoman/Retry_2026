@@ -34,7 +34,7 @@ public:
 
     // 패킷 처리. ClientConnection이 OnRecvCompleted에서 호출.
     void HandlePacket(ClientConnection* conn, int packetType,
-                      const char* body, int bodySize);
+        const char* body, int bodySize);
 
     // 클라이언트 연결 종료 처리 (소켓 끊김 등).
     // 방 정리, 호스트 마이그레이션, 다른 멤버에게 통보 처리.
@@ -62,10 +62,15 @@ private:
     void HandleRoomJoin(ClientConnection* conn, const char* body, int bodySize);
     void HandleRoomList(ClientConnection* conn);
     void HandleGameStart(ClientConnection* conn);
+    void HandleRoomLeave(ClientConnection* conn);
+    void HandleSelectTeam(ClientConnection* conn, const char* body, int bodySize);
+
+    // 방 멤버/팀 현황을 그 방 전원에게 push (입장/퇴장/팀변경/방장변경 시).
+    void BroadcastRoomState(RoomData* room);
 
     // 헬퍼 (mtx 잠긴 상태에서만 호출)
     ClientConnection* GetClient(int clientId);
-    RoomData*         GetRoom(int roomId);
+    RoomData* GetRoom(int roomId);
 
     // 방에서 클라 제거. 빈 방이면 방도 삭제.
     void RemoveClientFromRoom(int clientId);

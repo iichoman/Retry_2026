@@ -25,6 +25,9 @@
 #pragma pack(push, 1)
 
 constexpr int MAX_SESSION_PLAYERS = 30;
+constexpr int MAX_TEAMS = 10;   // 로비 팀 슬롯 (5x2 그리드)
+constexpr int TEAM_CAPACITY = 3;    // 한 팀 최대 인원 (MAX_TEAMS * TEAM_CAPACITY = MAX_SESSION_PLAYERS)
+constexpr int TEAM_UNASSIGNED = -1;  // 미배정
 constexpr int MAX_PLAYER_NAME = 32;
 constexpr int MAX_ROOM_NAME = 32;
 constexpr int MAX_ROOM_LIST = 50;
@@ -46,6 +49,10 @@ enum class PacketType : int {
     ROOM_LIST_RESULT = 8,
     GAME_START_REQUEST = 9,
     SESSION_ASSIGN = 10,
+    ROOM_LEAVE_REQUEST = 11,        // C→S: 현재 방(파티) 나가기
+    ROOM_LEAVE_RESULT = 12,         // S→C: 나가기 결과 (나간 본인에게)
+    ROOM_SELECT_TEAM_REQUEST = 13,  // C→S: 팀 슬롯 선택 (0..MAX_TEAMS-1, -1=미배정)
+    ROOM_STATE = 14,                // S→C: 방 멤버/팀 현황 (변경 시 전원에게 push)
 
     // ── 인게임: 입력 / 위치 (Session_Manager, 포트 9001) ───────
     PLAYER_INPUT = 20,   // C→S: 입력 + 자칭 위치 (50ms)
@@ -139,6 +146,32 @@ struct RoomListEntry {
 struct RoomListResult {
     int           count;
     RoomListEntry rooms[MAX_ROOM_LIST];
+};
+
+// C→S: 팀 슬롯 선택
+struct RoomSelectTeamRequest {
+    int teamId;            // 0 .. MAX_TEAMS-1, 또는 TEAM_UNASSIGNED(-1)
+};
+
+// S→C: 나가기 결과 (나간 본인에게만)
+struct RoomLeaveResult {
+    int success;
+};
+
+// 방 멤버 1명 (ROOM_STATE 항목)
+struct RoomMemberEntry {
+    int  clientId;
+    int  teamId;           // -1=미배정, 0..MAX_TEAMS-1
+    int  isHost;           // 1=방장
+    char playerName[MAX_PLAYER_NAME];
+};
+
+// S→C: 방(파티) 전체 현황. 입장/퇴장/팀변경/방장변경 시 전원에게 push.
+struct RoomStateData {
+    int             roomId;
+    int             hostClientId;
+    int             memberCount;
+    RoomMemberEntry members[MAX_SESSION_PLAYERS];
 };
 
 // 세션 할당 (방장의 GAME_START_REQUEST 응답으로 모든 멤버에게 송신)
@@ -354,6 +387,7 @@ struct IpcCreateSession {
     int mapSeed;
     int playerCount;
     int playerIds[MAX_SESSION_PLAYERS];
+    int playerTeams[MAX_SESSION_PLAYERS];   // 각 playerIds[i]의 로비 선택 팀 (0..MAX_TEAMS-1)
 };
 
 struct IpcSessionEnded {
