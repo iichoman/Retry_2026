@@ -1,4 +1,4 @@
-#include "InterestManagement.h"
+ï»¿#include "InterestManagement.h"
 #include "GameSession.h"
 #include "PlayerEntity.h"
 #include "MonsterEntity.h"
@@ -16,7 +16,7 @@
 using namespace std::chrono;
 
 // ============================================================================
-//  ½Ã¾ß¼± °Ë»ç (º® °¡¸²)
+//  ì‹œì•¼ì„  ê²€ì‚¬ (ë²½ ê°€ë¦¼)
 // ============================================================================
 bool InterestManagement::HasLineOfSight(const DungeonGenerator& dungeon,
     const Vec3& fromPos, const Vec3& toPos)
@@ -27,7 +27,7 @@ bool InterestManagement::HasLineOfSight(const DungeonGenerator& dungeon,
     if (len < 0.5f) return true;
 
     int steps = (int)(len / 0.5f);
-    if (steps > 90) steps = 90;        // ¾ÈÀü »óÇÑ (45m/0.5)
+    if (steps > 90) steps = 90;        // ì•ˆì „ ìƒí•œ (45m/0.5)
 
     for (int i = 1; i < steps; ++i)
     {
@@ -42,13 +42,13 @@ bool InterestManagement::HasLineOfSight(const DungeonGenerator& dungeon,
 }
 
 // ============================================================================
-//  Æ÷Å» ±×·¡ÇÁ °¡½Ã¼º ÆÇÁ¤
+//  í¬íƒˆ ê·¸ë˜í”„ ê°€ì‹œì„± íŒì •
 // ============================================================================
 bool InterestManagement::CanSee(const DungeonGenerator& dungeon,
     const Vec3& fromPos, int fromNode,
     const Vec3& toPos, int toNode)
 {
-    // ³ëµå ¹ÌºĞ·ù(¹æ/º¹µµ ¹Û) ¡æ °Å¸® + ½Ã¾ß¼± fallback
+    // ë…¸ë“œ ë¯¸ë¶„ë¥˜(ë°©/ë³µë„ ë°–) â†’ ê±°ë¦¬ + ì‹œì•¼ì„  fallback
     if (fromNode < 0 || toNode < 0)
     {
         float distSq = fromPos.DistanceSqXZ(toPos);
@@ -58,13 +58,13 @@ bool InterestManagement::CanSee(const DungeonGenerator& dungeon,
         return true;
     }
 
-    // °°Àº ³ëµåÀÌ°Å³ª 1-hop ÀÎÁ¢ ³ëµå¸é º¸ÀÓ (°Å¸® ¹«°ü, ½Ã¾ß¼± »ı·«).
-    //  AreNodesAdjacent´Â fromNode==toNodeÀÎ °æ¿ìµµ true¸¦ ¹İÈ¯ÇÑ´Ù.
+    // ê°™ì€ ë…¸ë“œì´ê±°ë‚˜ 1-hop ì¸ì ‘ ë…¸ë“œë©´ ë³´ì„ (ê±°ë¦¬ ë¬´ê´€, ì‹œì•¼ì„  ìƒëµ).
+    //  AreNodesAdjacentëŠ” fromNode==toNodeì¸ ê²½ìš°ë„ trueë¥¼ ë°˜í™˜í•œë‹¤.
     return dungeon.AreNodesAdjacent(fromNode, toNode);
 }
 
 // ============================================================================
-//  ÆĞÅ¶ º»¹® ±¸¼º ÇïÆÛ
+//  íŒ¨í‚· ë³¸ë¬¸ êµ¬ì„± í—¬í¼
 // ============================================================================
 static void FillPlayerEnter(PlayerEnterView& ev, const PlayerEntity& p)
 {
@@ -126,7 +126,7 @@ static inline void SafeSend(PlayerEntity& target, int packetType,
 }
 
 // ============================================================================
-//  UpdateAll - ¸Å Æ½ È£ÃâµÇ´Â ÇÙ½É
+//  UpdateAll - ë§¤ í‹± í˜¸ì¶œë˜ëŠ” í•µì‹¬
 // ============================================================================
 void InterestManagement::UpdateAll(GameSession& session)
 {
@@ -137,26 +137,28 @@ void InterestManagement::UpdateAll(GameSession& session)
     long long ts = duration_cast<milliseconds>(
         system_clock::now().time_since_epoch()).count();
 
-    // --- 0´Ü°è: ¸ğµç °´Ã¼ÀÇ ¼Ò¼Ó ¹æÀ» 1È¸ °è»êÇÏ¿© Ä³½Ã ---
+    // --- 0ë‹¨ê³„: ëª¨ë“  ê°ì²´ì˜ ì†Œì† ë°©ì„ 1íšŒ ê³„ì‚°í•˜ì—¬ ìºì‹œ ---
     std::unordered_map<int, int> playerNode;    // clientId -> roomId
     std::unordered_map<int, int> monsterNode;   // monsterId -> roomId
     for (auto& kv : players)
         playerNode[kv.first] = dungeon.NodeIdAt(kv.second->position);
     for (auto& kv : monsters)
     {
-        if (kv.second->aiState == AI_DEAD) continue;
+        // NOTE: dead monsters (corpses) are included on purpose.
+        // Clients that come into view later must still see the corpse.
         monsterNode[kv.second->id] = dungeon.NodeIdAt(kv.second->position);
     }
 
-    // --- °¢ ÇÃ·¹ÀÌ¾î ½Ã¾ß °»½Å ---
+    // --- ê° í”Œë ˆì´ì–´ ì‹œì•¼ ê°±ì‹  ---
     for (auto& kv : players)
     {
         PlayerEntity& p = *kv.second;
         if (!p.conn || !p.conn->active) continue;
+        if (p.extracted) continue;              // íƒˆì¶œìëŠ” ì›”ë“œë¥¼ ë” ë³´ì§€ ì•ŠìŒ
 
         int pNode = playerNode[p.clientId];
 
-        // 1) »õ ½Ã¾ß °è»ê (¹æ ±â¹İ + ½Ã¾ß¼±)
+        // 1) ìƒˆ ì‹œì•¼ ê³„ì‚° (ë°© ê¸°ë°˜ + ì‹œì•¼ì„ )
         std::unordered_set<int> nearPlayers;
         std::unordered_set<int> nearMonsters;
 
@@ -164,6 +166,7 @@ void InterestManagement::UpdateAll(GameSession& session)
         {
             if (kv2.first == p.clientId) continue;
             const PlayerEntity& op = *kv2.second;
+            if (op.extracted) continue;         // íƒˆì¶œìëŠ” ë‚¨ì—ê²Œ ë³´ì´ì§€ ì•ŠìŒ
             int oNode = playerNode[op.clientId];
             if (CanSee(dungeon, p.position, pNode, op.position, oNode))
                 nearPlayers.insert(op.clientId);
@@ -171,13 +174,12 @@ void InterestManagement::UpdateAll(GameSession& session)
         for (auto& kv2 : monsters)
         {
             const MonsterEntity& m = *kv2.second;
-            if (m.aiState == AI_DEAD) continue;
             int mNode = monsterNode[m.id];
             if (CanSee(dungeon, p.position, pNode, m.position, mNode))
                 nearMonsters.insert(m.id);
         }
 
-        // 2) ÇÃ·¹ÀÌ¾î ENTER/MOVE/LEAVE Ã³¸®
+        // 2) í”Œë ˆì´ì–´ ENTER/MOVE/LEAVE ì²˜ë¦¬
         for (int id : nearPlayers)
         {
             auto pit = players.find(id);
@@ -205,7 +207,7 @@ void InterestManagement::UpdateAll(GameSession& session)
         }
         p.viewedPlayers = nearPlayers;
 
-        // 3) ¸ó½ºÅÍ ENTER/MOVE/LEAVE Ã³¸®
+        // 3) ëª¬ìŠ¤í„° ENTER/MOVE/LEAVE ì²˜ë¦¬
         for (int id : nearMonsters)
         {
             auto mit = monsters.find(id);
@@ -236,7 +238,7 @@ void InterestManagement::UpdateAll(GameSession& session)
 }
 
 // ============================================================================
-//  OnPlayerJoin - »õ Å¬¶ó ÀÔÀå ½Ã Áï½Ã ¾ç¹æÇâ ½Ã¾ß µ¿±âÈ­
+//  OnPlayerJoin - ìƒˆ í´ë¼ ì…ì¥ ì‹œ ì¦‰ì‹œ ì–‘ë°©í–¥ ì‹œì•¼ ë™ê¸°í™”
 // ============================================================================
 void InterestManagement::OnPlayerJoin(GameSession& session, int newClientId)
 {
@@ -249,7 +251,7 @@ void InterestManagement::OnPlayerJoin(GameSession& session, int newClientId)
     PlayerEntity& self = *it->second;
     int selfNode = dungeon.NodeIdAt(self.position);
 
-    // 1) º»ÀÎ ½Ã¾ß: ´Ù¸¥ ÇÃ·¹ÀÌ¾î + ¸ó½ºÅÍ ENTER ¼Û½Å
+    // 1) ë³¸ì¸ ì‹œì•¼: ë‹¤ë¥¸ í”Œë ˆì´ì–´ + ëª¬ìŠ¤í„° ENTER ì†¡ì‹ 
     for (auto& kv : players)
     {
         if (kv.first == newClientId) continue;
@@ -265,7 +267,6 @@ void InterestManagement::OnPlayerJoin(GameSession& session, int newClientId)
     for (auto& kv : monsters)
     {
         const MonsterEntity& m = *kv.second;
-        if (m.aiState == AI_DEAD) continue;
         int mNode = dungeon.NodeIdAt(m.position);
         if (CanSee(dungeon, self.position, selfNode, m.position, mNode))
         {
@@ -275,7 +276,7 @@ void InterestManagement::OnPlayerJoin(GameSession& session, int newClientId)
         }
     }
 
-    // 2) º»ÀÎÀÌ ´Ù¸¥ ÇÃ·¹ÀÌ¾î ½Ã¾ß¿¡ µé¾î°¡´Â °æ¿ì: ±×µé¿¡°Ô ENTER
+    // 2) ë³¸ì¸ì´ ë‹¤ë¥¸ í”Œë ˆì´ì–´ ì‹œì•¼ì— ë“¤ì–´ê°€ëŠ” ê²½ìš°: ê·¸ë“¤ì—ê²Œ ENTER
     for (auto& kv : players)
     {
         if (kv.first == newClientId) continue;
@@ -291,7 +292,7 @@ void InterestManagement::OnPlayerJoin(GameSession& session, int newClientId)
 }
 
 // ============================================================================
-//  OnPlayerLeave - ÅğÀå ½Ã ´Ù¸¥ ÇÃ·¹ÀÌ¾î ½Ã¾ß¿¡¼­ Á¦°Å
+//  OnPlayerLeave - í‡´ì¥ ì‹œ ë‹¤ë¥¸ í”Œë ˆì´ì–´ ì‹œì•¼ì—ì„œ ì œê±°
 // ============================================================================
 void InterestManagement::OnPlayerLeave(GameSession& session, int leavingClientId)
 {
@@ -310,7 +311,7 @@ void InterestManagement::OnPlayerLeave(GameSession& session, int leavingClientId
 }
 
 // ============================================================================
-//  OnMonsterDeath - ¸ó½ºÅÍ »ç¸Á ½Ã ½Ã¾ß ¾È ÇÃ·¹ÀÌ¾î¿¡°Ô MONSTER_DIED
+//  OnMonsterDeath - ëª¬ìŠ¤í„° ì‚¬ë§ ì‹œ ì‹œì•¼ ì•ˆ í”Œë ˆì´ì–´ì—ê²Œ MONSTER_DIED
 // ============================================================================
 void InterestManagement::OnMonsterDeath(GameSession& session, int monsterId)
 {

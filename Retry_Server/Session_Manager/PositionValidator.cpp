@@ -1,15 +1,16 @@
-#include "PositionValidator.h"
+ï»¿#include "PositionValidator.h"
 #include "Dungeon/DungeonGenerator.h"
 #include "../Common/Logger.h"
+#include <cmath>
 
 int PositionValidator::TeleportRejectCount = 0;
 int PositionValidator::WallRejectCount = 0;
 
 bool PositionValidator::IsFloorPosition(const DungeonGenerator& dungeon, const Vec3& worldPos)
 {
-    // ¿ùµå ÁÂÇ¥ ¡æ °İÀÚ ÁÂÇ¥ (worldOffset Àû¿ë)
+    // ì›”ë“œ ì¢Œí‘œ â†’ ê²©ì ì¢Œí‘œ (worldOffset ì ìš©)
     IntVec3 tile = dungeon.WorldToTile(worldPos);
-    tile.y = 0;     // ´øÀü floor Å¸ÀÏÀº ¸ğµÎ y=0¿¡ Á¸Àç
+    tile.y = 0;     // ë˜ì „ floor íƒ€ì¼ì€ ëª¨ë‘ y=0ì— ì¡´ì¬
     return dungeon.IsFloorTile(tile);
 }
 
@@ -19,14 +20,14 @@ Vec3 PositionValidator::ValidateMove(const DungeonGenerator& dungeon,
     float maxSpeedXZ,
     float dt)
 {
-    // ¦¡¦¡ 1. ÅÚ·¹Æ÷Æ® Â÷´Ü ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
-    // °Å¸® ºñ±³ (XZ Æò¸é¸¸)
-    float dx = attemptedPos.x - prevPos.x;
-    float dz = attemptedPos.z - prevPos.z;
+    Vec3 target = attemptedPos;   // const íŒŒë¼ë¯¸í„° ë³µì‚¬ (clamp ê°€ëŠ¥í•˜ë„ë¡)
+
+    // â”€â”€ 1. í…”ë ˆí¬íŠ¸ cap â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // í•œ í‹± í—ˆìš© ì´ë™ ê±°ë¦¬ = maxSpeed * dt * margin(2.0). ìµœì†Œ 1m.
+    float dx = target.x - prevPos.x;
+    float dz = target.z - prevPos.z;
     float distSq = dx * dx + dz * dz;
 
-    // Çã¿ë ÃÖ´ë °Å¸® = maxSpeed * dt * margin(2.0). ³×Æ®¿öÅ© ÁöÅÍ º¸»ó.
-    // dt°¡ ³Ê¹« ÀÛÀ¸¸é (¿¹: 0ms) maxDistµµ 0. ÃÖ¼Ò 1m´Â Çã¿ë.
     float maxDist = maxSpeedXZ * dt * 2.0f;
     if (maxDist < 1.0f) maxDist = 1.0f;
 
@@ -35,39 +36,49 @@ Vec3 PositionValidator::ValidateMove(const DungeonGenerator& dungeon,
         TeleportRejectCount++;
         if (TeleportRejectCount <= 10 || TeleportRejectCount % 100 == 0)
         {
-            Log::Warn("[Validator] ÅÚ·¹Æ÷Æ® Â÷´Ü: dist=%.1fm > max=%.1fm (count=%d)",
-                (float)std::sqrt(distSq), maxDist, TeleportRejectCount);
+            Log::Warn("[Validator] í…”ë ˆí¬íŠ¸ cap: dist=%.1fm > max=%.1fm â†’ %.1fmë¡œ ì œí•œ (count=%d)",
+                (float)std::sqrt(distSq), maxDist, maxDist, TeleportRejectCount);
         }
-        return prevPos;     // ¿ÏÀü °ÅºÎ - Á÷Àü À§Ä¡ À¯Áö
+
+        // â˜… í•µì‹¬ ìˆ˜ì •: ê±°ë¶€(freeze)í•˜ì§€ ì•Šê³  "í—ˆìš© ê±°ë¦¬ë§Œí¼ë§Œ" attempted ë°©í–¥ìœ¼ë¡œ ì´ë™.
+        //   - ì§ì „ ìœ„ì¹˜ ìœ ì§€(rollback)ëŠ” í´ë¼ê°€ ê³„ì† ì „ì§„í•  ë•Œ ì„œë²„ê°€ ë©ˆì¶°
+        //     ì˜êµ¬ desyncë¥¼ ìœ ë°œí–ˆìŒ(íšŒì „ë§Œ ë™ê¸°í™”ë˜ëŠ” ì¦ìƒ).
+        //   - ì´ë ‡ê²Œ í•˜ë©´ ì„œë²„ ìœ„ì¹˜ê°€ ë§¤ í‹± maxDistë§Œí¼ í´ë¼ ìª½ìœ¼ë¡œ ìˆ˜ë ´ â†’ ëŠê¹€/ë¼ì„ ìë™ ë³µêµ¬.
+        //   - ì§„ì§œ í…”ë ˆí¬íŠ¸ ì¹˜íŠ¸ëŠ” ì—¬ì „íˆ í‹±ë‹¹ maxDistë¡œ ì œí•œë˜ì–´ ë§‰í˜.
+        float dist = std::sqrt(distSq);
+        float t = (dist > 0.0001f) ? (maxDist / dist) : 0.0f;
+        target.x = prevPos.x + dx * t;
+        target.z = prevPos.z + dz * t;
+        // target.yëŠ” ê·¸ëŒ€ë¡œ (ì í”„/ë‚™í•˜ í—ˆìš©)
     }
 
-    // ¦¡¦¡ 2. º® Åë°ú Â÷´Ü ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
-    if (!IsFloorPosition(dungeon, attemptedPos))
+    // â”€â”€ 2. ë²½ í†µê³¼ ì°¨ë‹¨ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    if (!IsFloorPosition(dungeon, target))
     {
         WallRejectCount++;
 
-        // ´Ü¼ø ½½¶óÀÌµù: X ¶Ç´Â Z ÇÑ Ãà¸¸ Àû¿ëÇØº¸°í floor¸é ±×ÂÊÀ¸·Î
-        Vec3 xOnly(attemptedPos.x, attemptedPos.y, prevPos.z);
+        // ë‹¨ìˆœ ìŠ¬ë¼ì´ë”©: X ë˜ëŠ” Z í•œ ì¶•ë§Œ ì ìš©í•´ë³´ê³  floorë©´ ê·¸ìª½ìœ¼ë¡œ
+        Vec3 xOnly(target.x, target.y, prevPos.z);
         if (IsFloorPosition(dungeon, xOnly))
         {
-            return xOnly;       // X ÃàÀ¸·Î¸¸ ½½¶óÀÌµå (º®À» µû¶ó ¹Ì²ô·¯Áü)
+            return xOnly;       // X ì¶•ìœ¼ë¡œë§Œ ìŠ¬ë¼ì´ë“œ (ë²½ì„ ë”°ë¼ ë¯¸ë„ëŸ¬ì§)
         }
 
-        Vec3 zOnly(prevPos.x, attemptedPos.y, attemptedPos.z);
+        Vec3 zOnly(prevPos.x, target.y, target.z);
         if (IsFloorPosition(dungeon, zOnly))
         {
-            return zOnly;       // Z ÃàÀ¸·Î¸¸ ½½¶óÀÌµå
+            return zOnly;       // Z ì¶•ìœ¼ë¡œë§Œ ìŠ¬ë¼ì´ë“œ
         }
 
-        // ¾çÂÊ ´Ù ¸·Èû ¡æ XZ ±×´ë·Î prev, Y¸¸ attempted (Á¡ÇÁ/³«ÇÏ Çã¿ë)
+        // ì–‘ìª½ ë‹¤ ë§‰í˜ â†’ XZ ê·¸ëŒ€ë¡œ prev, Yë§Œ target (ì í”„/ë‚™í•˜ í—ˆìš©)
         if (WallRejectCount <= 10 || WallRejectCount % 200 == 0)
         {
-            Log::Info("[Validator] º® Åë°ú Â÷´Ü: attempted=(%.1f,%.1f,%.1f) ¡æ prev XZ À¯Áö (count=%d)",
-                attemptedPos.x, attemptedPos.y, attemptedPos.z, WallRejectCount);
+            Log::Info("[Validator] ë²½ í†µê³¼ ì°¨ë‹¨: attempted=(%.1f,%.1f,%.1f) â†’ prev XZ ìœ ì§€ (count=%d)",
+                target.x, target.y, target.z, WallRejectCount);
         }
-        return Vec3(prevPos.x, attemptedPos.y, prevPos.z);
+        return Vec3(prevPos.x, target.y, prevPos.z);
     }
 
-    // Åë°ú
-    return attemptedPos;
+    // í†µê³¼
+    return target;
 }

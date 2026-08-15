@@ -106,6 +106,19 @@ void WorldSimulation::StepMonsterAI(MonsterEntity& m, float dt, long long nowMs,
     const DungeonGenerator& dungeon,
     std::vector<AttackEvent>& outAttacks)
 {
+    // 공격 wind-up: 예약된 타격 시간 도달 시 실제 데미지 발생(LAND)
+    if (m.pendingHitTime > 0 && nowMs >= m.pendingHitTime)
+    {
+        AttackEvent land{};
+        land.monsterId = m.id;
+        land.victimClientId = m.pendingVictim;
+        land.damage = m.pendingDamage;   // damage>0 → 클라는 데미지만 반영(애니 X)
+        outAttacks.push_back(land);
+        m.pendingHitTime = 0;
+        m.pendingVictim = 0;
+        m.pendingDamage = 0;
+    }
+
     // 타겟 유효성 검증
     PlayerEntity* target = nullptr;
     if (m.targetClientId != 0)
@@ -195,15 +208,23 @@ void WorldSimulation::StepMonsterAI(MonsterEntity& m, float dt, long long nowMs,
         float dz = target->position.z - m.position.z;
         m.rotY = std::atan2(dx, dz) * 180.f / 3.14159265358979f;
 
-        // 쿨다운 후 공격
-        if (nowMs - m.lastAttackTime >= (long long)m.attackCooldownMs)
+        // 쿨다운 후 공격: 준비동작(START, 애니만) → windup 뒤 실제 타격(LAND)
+        if (nowMs - m.lastAttackTime >= (long long)m.attackCooldownMs && m.pendingHitTime == 0)
         {
             m.lastAttackTime = nowMs;
-            AttackEvent ev{};
-            ev.monsterId = m.id;
-            ev.victimClientId = target->clientId;
-            ev.damage = m.attackDamage;
-            outAttacks.push_back(ev);
+
+            // START: 공격 애니메이션 트리거 (damage=0 → HP 변화 없음)
+            AttackEvent start{};
+            start.monsterId = m.id;
+            start.victimClientId = target->clientId;
+            start.damage = 0;
+            outAttacks.push_back(start);
+
+            // windup 후 실제 데미지 예약 (애니메이션 타격 프레임과 맞춤)
+            const long long kAttackWindupMs = 600;
+            m.pendingHitTime = nowMs + kAttackWindupMs;
+            m.pendingVictim = target->clientId;
+            m.pendingDamage = m.attackDamage;
         }
         break;
     }
@@ -225,7 +246,7 @@ int WorldSimulation::FindNearestPlayerInRange(const MonsterEntity& m,
     for (auto& kv : players)
     {
         const PlayerEntity& p = *kv.second;
-        if (p.hp <= 0) continue;
+        if (!p.IsActiveInWorld()) continue;
         if (!p.conn) continue;       // 끊긴 클라는 인지 안 함 (단순화)
 
         float d2 = m.position.DistanceSqXZ(p.position);

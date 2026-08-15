@@ -3,9 +3,11 @@
 #include "SessionRegistry.h"
 #include "NetworkAcceptor.h"
 #include "IpcReceiver.h"
+#include "LobbyReporter.h"
 
 #include <iostream>
 #include <string>
+#include <windows.h>
 
 // ============================================================================
 //  Session_Manager 진입점
@@ -23,10 +25,12 @@
 
 constexpr int GAME_LISTEN_PORT     = 9001;
 constexpr int IPC_LISTEN_PORT      = 9002;
+constexpr int LOBBY_EVENT_PORT     = 9003;   // 로비로 세션 종료 보고
 constexpr int WORKER_THREAD_COUNT  = 6;
 
 int main()
 {
+    SetConsoleOutputCP(CP_UTF8);
     Log::Init("Session");
 
     if (!Net::StartupWinsock())
@@ -35,7 +39,8 @@ int main()
         return 1;
     }
 
-    SessionRegistry  registry;
+    LobbyReporter    reporter("127.0.0.1", LOBBY_EVENT_PORT);
+    SessionRegistry  registry(&reporter);
     IpcReceiver      ipc(&registry, IPC_LISTEN_PORT);
     NetworkAcceptor  acceptor(&registry, GAME_LISTEN_PORT, WORKER_THREAD_COUNT);
 
@@ -56,6 +61,7 @@ int main()
     Log::Info("==== Session_Manager 시작 ====");
     Log::Info("  - 게임 클라 포트: %d", GAME_LISTEN_PORT);
     Log::Info("  - 메인 서버 IPC 포트: %d", IPC_LISTEN_PORT);
+    Log::Info("  - 로비 보고 포트: %d", LOBBY_EVENT_PORT);
     Log::Info("  - IOCP 워커: %d개", WORKER_THREAD_COUNT);
     Log::Info("종료하려면 'exit' 입력.");
 

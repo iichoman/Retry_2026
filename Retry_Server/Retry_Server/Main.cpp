@@ -3,9 +3,11 @@
 #include "LobbyManager.h"
 #include "NetworkAcceptor.h"
 #include "SessionDispatcher.h"
+#include "SessionEventReceiver.h"
 
 #include <iostream>
 #include <string>
+#include <windows.h>
 
 // ============================================================================
 //  Retry_Server (로비 서버) 진입점
@@ -23,10 +25,12 @@
 
 constexpr int LOBBY_LISTEN_PORT  = 9000;
 constexpr int SESSION_IPC_PORT   = 9002;
+constexpr int SESSION_EVENT_PORT = 9003;   // 세션 매니저 → 로비 역방향 IPC
 constexpr int WORKER_THREAD_COUNT = 6;
 
 int main()
 {
+    SetConsoleOutputCP(CP_UTF8);
     Log::Init("Lobby");
 
     if (!Net::StartupWinsock())
@@ -38,10 +42,18 @@ int main()
     SessionDispatcher dispatcher("127.0.0.1", SESSION_IPC_PORT);
     LobbyManager      lobby(&dispatcher);
     NetworkAcceptor   acceptor(&lobby, LOBBY_LISTEN_PORT, WORKER_THREAD_COUNT);
+    SessionEventReceiver eventRx(&lobby, SESSION_EVENT_PORT);
 
+    if (!eventRx.Start())
+    {
+        Log::Error("세션 이벤트 수신 시작 실패");
+        Net::CleanupWinsock();
+        return 1;
+    }
     if (!acceptor.Start())
     {
         Log::Error("로비 서버 시작 실패");
+        eventRx.Stop();
         Net::CleanupWinsock();
         return 1;
     }
@@ -49,6 +61,7 @@ int main()
     Log::Info("==== Retry_Server (로비) 시작 ====");
     Log::Info("  - 클라 접속 포트: %d", LOBBY_LISTEN_PORT);
     Log::Info("  - 세션 매니저 IPC 포트: %d", SESSION_IPC_PORT);
+    Log::Info("  - 세션 종료 보고 수신 포트: %d", SESSION_EVENT_PORT);
     Log::Info("  - IOCP 워커: %d개", WORKER_THREAD_COUNT);
     Log::Info("종료하려면 'exit' 입력.");
 
@@ -64,6 +77,7 @@ int main()
 
     Log::Info("종료 요청 수신, 정리 중...");
     acceptor.Stop();
+    eventRx.Stop();
     lobby.Shutdown();
     Net::CleanupWinsock();
     Log::Info("로비 서버 종료 완료");

@@ -49,15 +49,17 @@ public:
     int   corridorWidth = 10;
 
     int   startRoomEdgeMargin = 10;
-    int   startRoomThickness = 5;        // C# StartRoomManager의 thickness 인자
+    // 시작 방 thickness는 클라가 mapHeight를 넘기므로 별도 필드 없음 (Generate 참고)
     int   teamCount = 16;       // 클라 인스펙터와 일치 (1~16 범위)
 
+    bool  createExitRoom = true;           // 클라 인스펙터와 반드시 일치! (RNG 소비 영향)
     bool  centerMapAtOrigin = true;        // 클라 인스펙터와 반드시 일치!
 
     // 결과 데이터 (Generate 호출 후 채워짐)
     std::vector<Room>                     rooms;
     std::vector<Corridor>                 corridors;
     std::vector<StartRoom>                assignedStartRooms;
+    int                                   exitRoomId = -1;   // Exit로 지정된 방 id (-1=없음)
     std::unordered_set<IntVec3>           floorTiles;
     std::unordered_set<IntVec3>           wallTiles;
     std::unordered_set<IntVec3>           ceilingTiles;
@@ -105,6 +107,7 @@ private:
     void  SplitToTarget(BSPNode* node, int targetCount, int minSize, CSharpRandom& random);
     void  BuildRooms(BSPNode* node, CSharpRandom& random);
     void  BuildBossRooms(CSharpRandom& random);
+    void  AssignExitRoom(CSharpRandom& random);
 
     std::vector<IntBounds> CreateBossRoomBounds(int count);
     IntBounds              CreateCenteredBounds(int centerX, int centerZ, int width, int depth);

@@ -83,6 +83,17 @@ enum class PacketType : int {
     EXTRACTION_REQUEST = 50,
     EXTRACTION_RESULT = 51,
     SESSION_ENDED = 52,
+    PLAYER_EXTRACTED = 53,   // S→C: 다른 플레이어 탈출 알림 (결과창/킬로그용)
+
+    // ── 아이템 / 인벤토리 (서버 권위) ──────────────────────────
+    ITEM_PICKUP_REQUEST = 60,   // C→S: 루팅 의도 (아이템/수량 지정)
+    ITEM_PICKUP_RESULT = 61,   // S→C: 루팅 판정 결과 (본인에게만)
+    LOOT_SPAWN = 62,   // S→C: 전리품 컨테이너 생성 (몬스터 사망 등)
+    LOOT_REMOVED = 63,   // S→C: 컨테이너 소멸 (내용물 소진)
+    INVENTORY_SYNC = 64,   // S→C: 인벤토리 전체 동기화 (권위 상태)
+
+    // ── [디버그 치트] 배포 시 제거 ─────────────────────────────
+    DEBUG_TELEPORT_EXIT = 90,   // C→S: 탈출 방으로 이동 요청
 
     // ── IPC (Retry_Server ↔ Session_Manager, 포트 9002) ───────
     IPC_CREATE_SESSION = 100,
@@ -361,17 +372,112 @@ struct MonsterDied {
 //  탈출 / 세션 종료
 // ----------------------------------------------------------------------------
 
+// 탈출 성립에 필요한 연속 체류 시간(초). 클라 ExitPortal.holdDuration과 일치해야 함.
+constexpr float EXTRACTION_HOLD_SEC = 7.0f;
+// 서버 판정 관용치. 네트워크 지연으로 클라가 살짝 먼저 요청해도 통과시킴.
+constexpr float EXTRACTION_HOLD_TOLERANCE = 0.9f;
+
+// 탈출 실패 사유 (ExtractionResult.failReason)
+enum ExtractionFailReason : int {
+    EXTRACT_OK = 0,
+    EXTRACT_FAIL_NOT_IN_ZONE = 1,   // 탈출 방 안이 아님
+    EXTRACT_FAIL_HOLD_TOO_SHORT = 2,   // 체류 시간 부족
+    EXTRACT_FAIL_DEAD = 3,   // 사망 상태
+    EXTRACT_FAIL_ALREADY = 4,   // 이미 탈출함
+    EXTRACT_FAIL_NO_EXIT_ROOM = 5,   // 이 던전에 탈출 방 없음
+};
+
 struct ExtractionRequest {
-    int extractionPointId;     // 탈출 지점 ID (시작 방 N개 중 하나)
+    int extractionPointId;     // 탈출 지점 ID (현재 미사용, 서버가 위치로 판정)
 };
 
 struct ExtractionResult {
     int success;
-    int itemCount;             // 가지고 나간 아이템 수
+    int itemCount;             // 가지고 나간 아이템 수 (인벤토리 미구현 → 0)
+    int failReason;            // ExtractionFailReason
+    float heldSec;             // 서버가 인정한 체류 시간 (디버그/UI용)
+};
+
+// S→C: 다른 플레이어가 탈출함. 시야와 무관하게 전원에게 broadcast.
+struct PlayerExtracted {
+    int clientId;
+    int remainingPlayers;      // 아직 월드에 남은 인원 (생존 + 미탈출)
 };
 
 struct SessionEnded {
     int reason;       // 0=정상 종료, 1=호스트 이탈, 2=오류, 3=타임아웃
+};
+
+// ----------------------------------------------------------------------------
+//  아이템 / 인벤토리 (서버 권위)
+//
+//  아이템 식별: 클라의 ItemData.itemId 문자열을 FNV-1a 32bit로 해시한 값.
+//  양쪽이 같은 함수로 계산하므로 별도 ID 테이블 동기화가 필요 없다.
+//  (ItemHash 참조 — 서버/클라 구현이 반드시 일치해야 함)
+//
+//  권위 모델:
+//   - 전리품 생성은 서버가 결정 (몬스터 사망 시 시드 기반 결정적 드롭)
+//   - 클라는 ITEM_PICKUP_REQUEST로 의도만 보냄
+//   - 서버가 거리/재고/인벤토리 여유를 검증하고 결과를 통보
+//   - 인벤토리 실체는 서버에만 있음. 클라는 INVENTORY_SYNC로 받아 표시만.
+// ----------------------------------------------------------------------------
+
+constexpr int MAX_LOOT_ENTRIES = 8;    // 컨테이너 1개의 최대 아이템 종류
+constexpr int MAX_INVENTORY_ENTRIES = 32;   // 인벤토리 최대 아이템 종류(슬롯)
+constexpr float LOOT_PICKUP_RANGE = 3.0f;  // 루팅 가능 거리(m)
+constexpr float LOOT_PICKUP_RANGE_SQ = LOOT_PICKUP_RANGE * LOOT_PICKUP_RANGE;
+
+// 아이템 1종 + 수량
+struct ItemStack {
+    int itemHash;
+    int count;
+};
+
+// 루팅 실패 사유 (ItemPickupResult.failReason)
+enum PickupFailReason : int {
+    PICKUP_OK = 0,
+    PICKUP_FAIL_NO_LOOT = 1,   // 그런 컨테이너 없음 (이미 소멸)
+    PICKUP_FAIL_TOO_FAR = 2,   // 거리 초과
+    PICKUP_FAIL_NO_ITEM = 3,   // 컨테이너에 그 아이템/수량 없음
+    PICKUP_FAIL_INV_FULL = 4,   // 인벤토리 가득 참
+    PICKUP_FAIL_DEAD = 5,   // 사망/탈출 상태
+};
+
+// C→S: 루팅 요청. count<=0 이면 해당 아이템 전량 요청으로 간주.
+struct ItemPickupRequest {
+    int lootId;
+    int itemHash;
+    int count;
+};
+
+// S→C: 루팅 결과 (요청한 본인에게만).
+struct ItemPickupResult {
+    int success;
+    int lootId;
+    int itemHash;
+    int grantedCount;      // 실제로 획득한 수량 (부분 획득 가능)
+    int failReason;        // PickupFailReason
+};
+
+// S→C: 전리품 컨테이너 생성.
+struct LootSpawnData {
+    int       lootId;
+    int       sourceMonsterId;   // 몬스터 드롭이면 몬스터 id, 아니면 0
+    float     posX, posY, posZ;
+    int       entryCount;
+    ItemStack entries[MAX_LOOT_ENTRIES];
+};
+
+// S→C: 컨테이너 소멸 (비었거나 세션 정리).
+struct LootRemovedData {
+    int lootId;
+};
+
+// S→C: 인벤토리 전체 동기화. 변경이 생길 때마다 본인에게 송신.
+struct InventorySyncData {
+    int       entryCount;
+    int       totalCount;        // 전체 개수 합 (탈출 결과의 itemCount와 동일 기준)
+    ItemStack entries[MAX_INVENTORY_ENTRIES];
 };
 
 // ----------------------------------------------------------------------------

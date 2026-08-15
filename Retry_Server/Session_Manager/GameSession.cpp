@@ -3,6 +3,8 @@
 #include "MonsterEntity.h"
 #include "SessionClientConnection.h"
 #include "PositionValidator.h"
+#include "LobbyReporter.h"
+#include "LootSystem.h"
 #include "../Common/PacketProtocol.h"
 #include "../Common/Logger.h"
 
@@ -11,13 +13,33 @@
 
 using namespace std::chrono;
 
+// ============================================================================
+//  [디버그 치트] 즉시 탈출
+//
+//  true면 EXTRACTION_REQUEST의 위치/체류시간 검증을 건너뛴다.
+//  탈출 방까지 걸어가서 7초 서 있는 과정 없이 탈출 흐름을 테스트할 때 사용.
+//
+//  주의: 서버가 권위라 클라 치트키만으로는 동작하지 않는다. 이 값이 true여야 함.
+//        배포 전 반드시 false로. 켜져 있으면 세션 시작 로그에 경고가 찍힌다.
+//
+//  기본값 false: F9 치트는 "탈출 방 근처로 이동"이라 검증을 건너뛸 필요가 없다.
+//  (이동 후 실제로 걸어들어가 7초 홀드하는 정상 흐름을 그대로 테스트한다)
+//  검증 자체를 건너뛰고 싶을 때만 true로.
+// ============================================================================
+static constexpr bool DEBUG_INSTANT_EXTRACT = false;
+
+// [디버그 치트] 탈출 방 이동 허용. 배포 전 false로.
+static constexpr bool DEBUG_ALLOW_TELEPORT = true;
+
 GameSession::GameSession(int sid, int hid, int seed,
     const std::vector<int>& allowedPlayerIds,
-    const std::vector<int>& playerTeams)
+    const std::vector<int>& playerTeams,
+    LobbyReporter* rep)
     : sessionId(sid)
     , hostClientId(hid)
     , mapSeed(seed)
     , running(false)
+    , reporter(rep)
 {
     for (size_t i = 0; i < allowedPlayerIds.size(); ++i)
     {
@@ -47,6 +69,11 @@ void GameSession::Start()
     tickThread = std::thread([this] { TickLoop(); });
     Log::Info("세션 시작: id=%d host=%d seed=%d 인원=%d",
         sessionId, hostClientId, mapSeed, (int)allowedPlayers.size());
+
+    if (DEBUG_INSTANT_EXTRACT)
+        Log::Warn("*** 치트 활성: 즉시 탈출(DEBUG_INSTANT_EXTRACT) — 배포 전 끌 것 ***");
+    if (DEBUG_ALLOW_TELEPORT)
+        Log::Warn("*** 치트 활성: 탈출 방 이동(DEBUG_ALLOW_TELEPORT) — 배포 전 끌 것 ***");
 }
 
 void GameSession::Stop()
@@ -123,6 +150,9 @@ void GameSession::AttachClient(int clientId, SessionClientConnection* conn)
     //   - 양쪽 viewedXxx 갱신
     im.OnPlayerJoin(*this, clientId);
 
+    // 이미 월드에 있는 전리품 컨테이너 + 본인 인벤토리 동기화.
+    loot.SendAllLootTo(*this, clientId);
+
     // 본인 시작 위치 즉시 알림 (클라가 시작방 좌표로 transform 갱신용).
     // OnPlayerJoin은 다른 객체 ENTER만 처리. 본인 PLAYER_MOVE는 별도 송신.
     PlayerEntity* p = players[clientId].get();
@@ -149,12 +179,16 @@ void GameSession::DetachClient(int clientId)
     std::lock_guard<std::recursive_mutex> lk(mtx);
     auto it = players.find(clientId);
     if (it == players.end()) return;
-    it->second->conn = nullptr;     // entity는 유지, 연결만 해제
+    it->second->conn = nullptr;     // 먼저 연결 해제 (이후 이 엔티티로의 송신 차단)
 
-    // 6단계: 시야 안 다른 플레이어들에게 LEAVE_VIEW 송신 + viewedPlayers에서 제거
+    // 시야 안 다른 플레이어들에게 LEAVE_VIEW 송신 + viewedPlayers에서 제거 (엔티티 살아있는 동안)
     im.OnPlayerLeave(*this, clientId);
 
-    Log::Info("[Session %d] 퇴장: clientId=%d", sessionId, clientId);
+    // 엔티티 완전 제거 → 캐릭터가 세션에서 완전히 빠짐 (재접속 미지원 단계).
+    // 몬스터는 targetClientId(int)로 대상을 참조하므로 댕글링 포인터 없음.
+    players.erase(clientId);
+
+    Log::Info("[Session %d] 퇴장(엔티티 제거): clientId=%d", sessionId, clientId);
 }
 
 void GameSession::HandlePacket(int clientId, int packetType,
@@ -172,8 +206,17 @@ void GameSession::HandlePacket(int clientId, int packetType,
         HandlePlayerAttack(clientId, body, bodySize);
         break;
 
-        // 추후 추가:
-        // case PacketType::EXTRACTION_REQUEST:   ...
+    case PacketType::EXTRACTION_REQUEST:
+        HandleExtraction(clientId, body, bodySize);
+        break;
+
+    case PacketType::ITEM_PICKUP_REQUEST:
+        HandleItemPickup(clientId, body, bodySize);
+        break;
+
+    case PacketType::DEBUG_TELEPORT_EXIT:   // [치트] 배포 시 제거
+        HandleDebugTeleportExit(clientId);
+        break;
 
     default:
         Log::Warn("[Session %d] 알 수 없는 인게임 패킷 type=%d from cid=%d",
@@ -209,7 +252,7 @@ void GameSession::HandlePlayerInput(int clientId, const char* body, int bodySize
     std::lock_guard<std::recursive_mutex> lk(mtx);
     PlayerEntity* p = GetPlayer(clientId);
     if (!p) return;
-    if (p->hp <= 0) return;     // 죽은 플레이어 입력 무시
+    if (!p->IsActiveInWorld()) return;   // 사망/탈출한 플레이어 입력 무시
 
     // 클라가 보낸 위치를 PositionValidator로 검증.
     // - 텔레포트 거리 초과 → 직전 위치 유지
@@ -235,6 +278,237 @@ void GameSession::HandlePlayerAttack(int clientId, const char* body, int bodySiz
 
     std::lock_guard<std::recursive_mutex> lk(mtx);
     cr.HandleAttack(*this, clientId, *req);
+}
+
+void GameSession::HandleItemPickup(int clientId, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(ItemPickupRequest)) return;
+    const ItemPickupRequest* req = reinterpret_cast<const ItemPickupRequest*>(body);
+
+    std::lock_guard<std::recursive_mutex> lk(mtx);
+    loot.HandlePickupRequest(*this, clientId, *req);
+}
+
+// 몬스터가 죽었을 때 전리품 생성. 전투 코드에서 호출된다.
+void GameSession::OnMonsterKilled(int monsterId, int /*killerClientId*/)
+{
+    std::lock_guard<std::recursive_mutex> lk(mtx);
+
+    auto& monsters = worldSim.GetMonsters();
+    auto it = monsters.find(monsterId);
+    if (it == monsters.end()) return;
+
+    loot.SpawnMonsterLoot(*this, monsterId, it->second->position,
+        it->second->kind, mapSeed);
+}
+
+// ============================================================================
+//  [디버그 치트] 탈출 방 근처로 이동          ※ 배포 시 이 함수 통째로 삭제
+//
+//  위치는 서버가 권위라 클라가 스스로 순간이동하면 PositionValidator가
+//  되돌린다. 그래서 서버가 직접 좌표를 옮기고 PLAYER_MOVE로 통보한다.
+//
+//  착지 지점: 탈출 방의 floorTiles 중 방 중심에 가장 가까운 타일.
+//  bounds 중심을 그대로 쓰면 기둥/장애물(blockedTiles) 위에 낄 수 있다.
+// ============================================================================
+
+void GameSession::HandleDebugTeleportExit(int clientId)
+{
+    if (!DEBUG_ALLOW_TELEPORT) return;
+
+    std::lock_guard<std::recursive_mutex> lk(mtx);
+    PlayerEntity* p = GetPlayer(clientId);
+    if (!p) return;
+    if (!p->IsActiveInWorld())
+    {
+        Log::Warn("[치트] cid=%d 이동 불가 (사망/탈출 상태)", clientId);
+        return;
+    }
+
+    if (dungeon.exitRoomId < 0)
+    {
+        Log::Warn("[치트] 이 던전에 탈출 방이 없음 (createExitRoom 확인)");
+        return;
+    }
+
+    const Room* exitRoom = nullptr;
+    for (const Room& r : dungeon.rooms)
+        if (r.id == dungeon.exitRoomId) { exitRoom = &r; break; }
+
+    if (!exitRoom || exitRoom->floorTiles.empty())
+    {
+        Log::Warn("[치트] 탈출 방 %d 의 바닥 타일을 찾지 못함", dungeon.exitRoomId);
+        return;
+    }
+
+    // 방 중심에 가장 가까운 바닥 타일 선택
+    float cx = (exitRoom->bounds.xMin() + exitRoom->bounds.xMax()) * 0.5f;
+    float cz = (exitRoom->bounds.zMin() + exitRoom->bounds.zMax()) * 0.5f;
+
+    const IntVec3* best = nullptr;
+    float bestDistSq = 0.f;
+    for (const IntVec3& t : exitRoom->floorTiles)
+    {
+        float dx = (float)t.x - cx;
+        float dz = (float)t.z - cz;
+        float dsq = dx * dx + dz * dz;
+        if (!best || dsq < bestDistSq) { best = &t; bestDistSq = dsq; }
+    }
+    if (!best) return;
+
+    Vec3 dest = dungeon.TileToWorldCenter(*best);
+
+    p->position = dest;
+    p->speed = 0.f;
+    p->extractionHoldSec = 0.f;         // 도착 직후부터 홀드 시작
+    p->startPosResendTicks = 10;        // 클라가 놓치지 않도록 재송신 예약
+
+    // 클라에게 즉시 통보 (클라는 이 좌표로 캐릭터를 스냅시킨다)
+    if (p->conn && p->conn->active)
+    {
+        long long ts = duration_cast<milliseconds>(
+            system_clock::now().time_since_epoch()).count();
+        PlayerMove pm{};
+        pm.clientId = clientId;
+        pm.posX = dest.x;
+        pm.posY = dest.y;
+        pm.posZ = dest.z;
+        pm.rotY = p->rotY;
+        pm.speed = 0.f;
+        pm.animState = 0;
+        pm.timestamp = ts;
+        p->conn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
+    }
+
+    Log::Warn("[치트] cid=%d 탈출 방(%d)으로 이동: (%.1f, %.1f, %.1f)",
+        clientId, dungeon.exitRoomId, dest.x, dest.y, dest.z);
+}
+
+// ============================================================================
+//  내부: 탈출 (서버 권위 판정)
+//
+//  클라는 포탈에서 holdDuration(7초)을 채우면 EXTRACTION_REQUEST를 보낸다.
+//  서버는 이걸 신뢰하지 않고 자체 누적한 체류 시간(extractionHoldSec)으로 검증.
+//  체류 시간은 UpdateExtractionHold가 매 틱 서버 권위 위치 기준으로 갱신한다.
+//
+//  성공 시:
+//   - extracted 플래그 → 이후 시야/전투/몬스터 타겟에서 제외 (IsActiveInWorld)
+//   - 본인에게 EXTRACTION_RESULT, 나머지에게 PLAYER_EXTRACTED
+//   - 다른 클라 화면에서 제거 (OnPlayerLeave → PLAYER_LEAVE_VIEW)
+//   - 남은 인원 0이면 세션 종료
+// ============================================================================
+
+void GameSession::HandleExtraction(int clientId, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(ExtractionRequest)) return;
+
+    std::lock_guard<std::recursive_mutex> lk(mtx);
+    PlayerEntity* p = GetPlayer(clientId);
+    if (!p) return;
+
+    ExtractionResult res{};
+    res.itemCount = loot.GetTotalItemCount(clientId);   // 서버 권위 인벤토리 기준
+    res.heldSec = p->extractionHoldSec;
+
+    // 1) 상태 검사 (치트로도 우회 불가 — 죽었거나 이미 나간 건 탈출 불가)
+    if (p->extracted)            res.failReason = EXTRACT_FAIL_ALREADY;
+    else if (p->hp <= 0)         res.failReason = EXTRACT_FAIL_DEAD;
+    else if (DEBUG_INSTANT_EXTRACT)
+    {
+        // [치트] 위치/체류시간 검증 생략
+        res.failReason = EXTRACT_OK;
+        Log::Warn("[치트] cid=%d 즉시 탈출 (위치/시간 검증 생략)", clientId);
+    }
+    else if (dungeon.exitRoomId < 0) res.failReason = EXTRACT_FAIL_NO_EXIT_ROOM;
+    // 2) 위치 검사: 서버 권위 위치가 실제 탈출 방 안인가
+    else if (dungeon.RoomIdAt(p->position) != dungeon.exitRoomId)
+        res.failReason = EXTRACT_FAIL_NOT_IN_ZONE;
+    // 3) 체류 시간 검사: 클라가 보낸 시간이 아니라 서버 누적치로 판정
+    else if (p->extractionHoldSec < EXTRACTION_HOLD_SEC * EXTRACTION_HOLD_TOLERANCE)
+        res.failReason = EXTRACT_FAIL_HOLD_TOO_SHORT;
+    else
+        res.failReason = EXTRACT_OK;
+
+    res.success = (res.failReason == EXTRACT_OK) ? 1 : 0;
+
+    if (p->conn && p->conn->active)
+        p->conn->SendPacket((int)PacketType::EXTRACTION_RESULT, &res, sizeof(res));
+
+    if (!res.success)
+    {
+        Log::Warn("[Session %d] 탈출 거부: cid=%d reason=%d held=%.1fs room=%d(exit=%d)",
+            sessionId, clientId, res.failReason, p->extractionHoldSec,
+            dungeon.RoomIdAt(p->position), dungeon.exitRoomId);
+        return;
+    }
+
+    // 4) 탈출 확정
+    p->extracted = true;
+    im.OnPlayerLeave(*this, clientId);   // 다른 클라 화면에서 제거
+
+    int remaining = 0;
+    for (auto& kv : players)
+        if (kv.second->IsActiveInWorld()) ++remaining;
+
+    PlayerExtracted pe{};
+    pe.clientId = clientId;
+    pe.remainingPlayers = remaining;
+    Broadcast((int)PacketType::PLAYER_EXTRACTED, &pe, sizeof(pe), clientId);
+
+    Log::Info("[Session %d] 탈출 성공: cid=%d held=%.1fs 남은인원=%d",
+        sessionId, clientId, p->extractionHoldSec, remaining);
+
+    CheckSessionEnd();
+}
+
+// 매 틱 호출. 서버 권위 위치 기준으로 탈출 방 체류 시간 누적.
+void GameSession::UpdateExtractionHold(float dt)
+{
+    if (dungeon.exitRoomId < 0) return;
+
+    for (auto& kv : players)
+    {
+        PlayerEntity& p = *kv.second;
+        if (!p.IsActiveInWorld())
+        {
+            p.extractionHoldSec = 0.f;
+            continue;
+        }
+
+        if (dungeon.RoomIdAt(p.position) == dungeon.exitRoomId)
+            p.extractionHoldSec += dt;
+        else
+            p.extractionHoldSec = 0.f;   // 방을 벗어나면 리셋 (클라 UI와 동일)
+    }
+}
+
+// 월드에 남은 인원이 0이면 세션 종료 통보. 중복 송신 방지.
+void GameSession::CheckSessionEnd()
+{
+    if (sessionEndSignaled.load()) return;
+    if (players.empty()) return;
+
+    for (auto& kv : players)
+        if (kv.second->IsActiveInWorld()) return;   // 아직 진행 중
+
+    sessionEndSignaled.store(true);
+
+    SessionEnded se{};
+    se.reason = 0;      // 정상 종료
+    Broadcast((int)PacketType::SESSION_ENDED, &se, sizeof(se), 0);
+
+    int survivors = 0;
+    for (auto& kv : players)
+        if (kv.second->extracted) ++survivors;
+
+    int total = (int)players.size();
+    Log::Info("[Session %d] 종료: 전원 탈출/사망 (탈출 %d / 전체 %d)",
+        sessionId, survivors, total);
+
+    // 로비에 종료 보고 → 로비가 방 정리 + 클라 상태 복귀.
+    // 실패해도 세션 종료 자체는 진행된다 (LobbyReporter가 경고만 남김).
+    if (reporter)
+        reporter->ReportSessionEnded(sessionId, se.reason, total, survivors);
 }
 
 PlayerEntity* GameSession::GetPlayer(int clientId)
@@ -310,6 +584,10 @@ void GameSession::TickStep(float dt)
             }
         }
 
+        // 2-a) 탈출 방 체류 시간 누적 (서버 권위 위치 기준).
+        //      EXTRACTION_REQUEST가 오면 이 값으로 검증한다.
+        UpdateExtractionHold(dt);
+
         // 2-b) 원거리 투사체 이동 + 충돌 처리 (활/총).
         //      벽/몬스터/플레이어 명중 시 데미지 + 소멸 패킷을 자체 broadcast.
         projSystem.Update(*this, dt);
@@ -340,6 +618,9 @@ void GameSession::TickStep(float dt)
         //    각 플레이어의 viewedXxx를 새 시야와 비교하여 차이를 처리.
         //    PLAYER_MOVE/MONSTER_MOVE는 시야 안 클라에게만 송신 (대역폭 절약).
         im.UpdateAll(*this);
+
+        // 4) 전원 탈출/사망 여부 확인 (사망으로 세션이 끝나는 경우 포함).
+        CheckSessionEnd();
     }
 
     // 시야 무관한 중요 이벤트는 전체 broadcast (몬스터 공격, 사망).
@@ -349,6 +630,3 @@ void GameSession::TickStep(float dt)
     for (const auto& pd : deathPackets)
         Broadcast((int)PacketType::PLAYER_DIED, &pd, sizeof(pd), 0);
 }
-
-// 5단계의 SendInitialEnterViews / SendPlayerEnterViewToOthers 헬퍼는 제거됨.
-// 6단계부터 InterestManagement.OnPlayerJoin/OnPlayerLeave가 통합 처리.

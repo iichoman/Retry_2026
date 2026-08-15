@@ -43,5 +43,10 @@ public:
     float     attackCooldownMs;      // 공격 간격
     int       attackDamage;          // 공격 1회 데미지
 
+    // attack wind-up: reserve on START, apply real damage on LAND after windup
+    long long pendingHitTime = 0;    // ms. 0 = none
+    int       pendingVictim = 0;     // victim clientId for delayed damage
+    int       pendingDamage = 0;     // damage to apply on LAND
+
     MonsterEntity(int monsterId, int monsterKind, const Vec3& spawnPos);
 };

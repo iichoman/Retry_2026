@@ -1,4 +1,4 @@
-#include "ProjectileSystem.h"
+ï»¿#include "ProjectileSystem.h"
 #include "GameSession.h"
 #include "PlayerEntity.h"
 #include "MonsterEntity.h"
@@ -12,17 +12,17 @@
 #include <algorithm>
 
 // ============================================================================
-//  Spawn - Åõ»çÃ¼ »ı¼º
+//  Spawn - íˆ¬ì‚¬ì²´ ìƒì„±
 // ============================================================================
 void ProjectileSystem::Spawn(GameSession& session, int ownerId, int weaponKind,
     const Vec3& origin, const Vec3& dir,
     int damage, float maxDistance, float speed)
 {
-    // ¹æÇâÀ» XZ Æò¸éÀ¸·Î Á¤±ÔÈ­ (¼­¹ö´Â ¼öÆò ºñÇàÀ¸·Î ´Ü¼øÈ­)
+    // ë°©í–¥ì„ XZ í‰ë©´ìœ¼ë¡œ ì •ê·œí™” (ì„œë²„ëŠ” ìˆ˜í‰ ë¹„í–‰ìœ¼ë¡œ ë‹¨ìˆœí™”)
     Vec3 d(dir.x, 0.f, dir.z);
     d = d.Normalized();
     if (d.LengthSq() < 1e-6f)
-        return;     // ¹æÇâ ¾øÀ½ ¡æ ¹ß»ç ¾È ÇÔ
+        return;     // ë°©í–¥ ì—†ìŒ â†’ ë°œì‚¬ ì•ˆ í•¨
 
     ProjectileEntity proj;
     proj.id = nextId++;
@@ -39,7 +39,7 @@ void ProjectileSystem::Spawn(GameSession& session, int ownerId, int weaponKind,
     int id = proj.id;
     projectiles[id] = proj;
 
-    // »ı¼º broadcast (ÀüÃ¼ Å¬¶ó). Å¬¶ó´Â Á÷À°¸éÃ¼¸¦ ¶ç¿î´Ù.
+    // ìƒì„± broadcast (ì „ì²´ í´ë¼). í´ë¼ëŠ” ì§ìœ¡ë©´ì²´ë¥¼ ë„ìš´ë‹¤.
     ProjectileSpawn sp{};
     sp.projectileId = id;
     sp.ownerId = ownerId;
@@ -54,7 +54,7 @@ void ProjectileSystem::Spawn(GameSession& session, int ownerId, int weaponKind,
 }
 
 // ============================================================================
-//  Update - ¸Å Æ½ ÀÌµ¿ + Ãæµ¹
+//  Update - ë§¤ í‹± ì´ë™ + ì¶©ëŒ
 // ============================================================================
 void ProjectileSystem::Update(GameSession& session, float dtSec)
 {
@@ -79,17 +79,17 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
         if (steps < 1) steps = 1;
 
         bool  hit = false;
-        int   hitType = 3;        // ±âº» ¼ö¸í
+        int   hitType = 3;        // ê¸°ë³¸ ìˆ˜ëª…
         int   hitTarget = 0;
         Vec3  hitPos = next;
 
-        // ÀÌµ¿ °æ·Î¸¦ 0.5m °£°İ »ùÇÃ¸µÇÏ¸ç Ãæµ¹ °Ë»ç (tunneling ¹æÁö)
+        // ì´ë™ ê²½ë¡œë¥¼ 0.5m ê°„ê²© ìƒ˜í”Œë§í•˜ë©° ì¶©ëŒ ê²€ì‚¬ (tunneling ë°©ì§€)
         for (int i = 1; i <= steps && !hit; ++i)
         {
             float t = (float)i / (float)steps;
             Vec3 s = prev + (next - prev) * t;
 
-            // 1) º® Ãæµ¹
+            // 1) ë²½ ì¶©ëŒ
             IntVec3 tile = dungeon.WorldToTile(s);
             tile.y = 0;
             if (dungeon.IsWallTile(tile))
@@ -98,7 +98,7 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
                 break;
             }
 
-            // 2) ¸ó½ºÅÍ Ãæµ¹ (»ì¾ÆÀÖ´Â °Í)
+            // 2) ëª¬ìŠ¤í„° ì¶©ëŒ (ì‚´ì•„ìˆëŠ” ê²ƒ)
             for (auto& mkv : monsters)
             {
                 MonsterEntity& m = *mkv.second;
@@ -111,12 +111,12 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
             }
             if (hit) break;
 
-            // 3) ÇÃ·¹ÀÌ¾î Ãæµ¹ (¹ß»çÀÚ Á¦¿Ü, »ì¾ÆÀÖ´Â °Í)
+            // 3) í”Œë ˆì´ì–´ ì¶©ëŒ (ë°œì‚¬ì ì œì™¸, ì‚´ì•„ìˆëŠ” ê²ƒ)
             for (auto& pkv : players)
             {
                 if (pkv.first == p.ownerId) continue;
                 PlayerEntity& pl = *pkv.second;
-                if (pl.hp <= 0) continue;
+                if (!pl.IsActiveInWorld()) continue;
                 if (s.DistanceSqXZ(pl.position) <= HIT_RADIUS * HIT_RADIUS)
                 {
                     hit = true; hitType = 2; hitTarget = pl.clientId; hitPos = s;
@@ -127,10 +127,10 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
 
         if (hit)
         {
-            // ¦¡¦¡ ¸íÁß Ã³¸® ¦¡¦¡
+            // â”€â”€ ëª…ì¤‘ ì²˜ë¦¬ â”€â”€
             if (hitType == 1)
             {
-                // ¸ó½ºÅÍ ¸íÁß
+                // ëª¬ìŠ¤í„° ëª…ì¤‘
                 bool killed = session.worldSim.ApplyDamageToMonster(hitTarget, p.damage);
                 int hpAfter = 0;
                 auto mIt = monsters.find(hitTarget);
@@ -138,7 +138,7 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
 
                 CombatEvent ce{};
                 ce.attackerId = p.ownerId;
-                ce.targetId = -hitTarget;        // À½¼ö = ¸ó½ºÅÍ
+                ce.targetId = -hitTarget;        // ìŒìˆ˜ = ëª¬ìŠ¤í„°
                 ce.damage = p.damage;
                 ce.weaponKind = p.weaponKind;
                 ce.comboIndex = 0;
@@ -155,11 +155,14 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
                     md.monsterId = hitTarget;
                     md.killerId = p.ownerId;
                     session.Broadcast((int)PacketType::MONSTER_DIED, &md, sizeof(md), 0);
+
+                    // ì²˜ì¹˜ ì‹œ ì „ë¦¬í’ˆ ìƒì„± (ì„œë²„ ê¶Œìœ„)
+                    session.OnMonsterKilled(hitTarget, p.ownerId);
                 }
             }
             else if (hitType == 2)
             {
-                // ÇÃ·¹ÀÌ¾î ¸íÁß (PvP)
+                // í”Œë ˆì´ì–´ ëª…ì¤‘ (PvP)
                 auto pIt = players.find(hitTarget);
                 if (pIt != players.end())
                 {
@@ -169,7 +172,7 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
 
                     CombatEvent ce{};
                     ce.attackerId = p.ownerId;
-                    ce.targetId = hitTarget;     // ¾ç¼ö = ÇÃ·¹ÀÌ¾î
+                    ce.targetId = hitTarget;     // ì–‘ìˆ˜ = í”Œë ˆì´ì–´
                     ce.damage = p.damage;
                     ce.weaponKind = p.weaponKind;
                     ce.comboIndex = 0;
@@ -189,9 +192,9 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
                     }
                 }
             }
-            // hitType == 0 (º®)ÀÌ¸é µ¥¹ÌÁö ¾øÀ½
+            // hitType == 0 (ë²½)ì´ë©´ ë°ë¯¸ì§€ ì—†ìŒ
 
-            // ¼Ò¸ê broadcast
+            // ì†Œë©¸ broadcast
             ProjectileDespawn dp{};
             dp.projectileId = p.id;
             dp.hitType = hitType;
@@ -205,16 +208,16 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
             continue;
         }
 
-        // ¦¡¦¡ Ãæµ¹ ¾øÀ½: ÀÌµ¿ È®Á¤ ¦¡¦¡
+        // â”€â”€ ì¶©ëŒ ì—†ìŒ: ì´ë™ í™•ì • â”€â”€
         p.position = next;
         p.traveled += segLen;
 
         if (p.traveled >= p.maxDistance)
         {
-            // »ç°Å¸® ÃÊ°ú ¡æ ¼Ò¸ê (¼ö¸í)
+            // ì‚¬ê±°ë¦¬ ì´ˆê³¼ â†’ ì†Œë©¸ (ìˆ˜ëª…)
             ProjectileDespawn dp{};
             dp.projectileId = p.id;
-            dp.hitType = 3;       // ¼ö¸í
+            dp.hitType = 3;       // ìˆ˜ëª…
             dp.hitTargetId = 0;
             dp.posX = p.position.x; dp.posY = p.position.y; dp.posZ = p.position.z;
             session.Broadcast((int)PacketType::PROJECTILE_DESPAWN, &dp, sizeof(dp), 0);
@@ -224,7 +227,7 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
         }
         else
         {
-            // À§Ä¡ °»½Å broadcast
+            // ìœ„ì¹˜ ê°±ì‹  broadcast
             ProjectileMove mv{};
             mv.projectileId = p.id;
             mv.posX = p.position.x; mv.posY = p.position.y; mv.posZ = p.position.z;
@@ -232,7 +235,7 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
         }
     }
 
-    // Á×Àº Åõ»çÃ¼ Á¦°Å
+    // ì£½ì€ íˆ¬ì‚¬ì²´ ì œê±°
     for (int id : toRemove)
         projectiles.erase(id);
 }

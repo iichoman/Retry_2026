@@ -1,4 +1,4 @@
-#include "CombatResolver.h"
+ï»¿#include "CombatResolver.h"
 #include "GameSession.h"
 #include "PlayerEntity.h"
 #include "MonsterEntity.h"
@@ -14,47 +14,47 @@
 using namespace std::chrono;
 
 // ============================================================================
-//  ¹«±â µ¥ÀÌÅÍ (Á¹¾÷ µ¥¸ğ¿ë µğÆúÆ®)
+//  ë¬´ê¸° ë°ì´í„° (ì¡¸ì—… ë°ëª¨ìš© ë””í´íŠ¸)
 //
-//  ±Ù°Å¸®(°Ë): Á÷À°¸éÃ¼ ¹üÀ§ °ø°İ. range=¹Ú½º ±æÀÌ, width=¹Ú½º Æø.
-//  ¿ø°Å¸®(È°/ÃÑ): Åõ»çÃ¼. range=ÃÖ´ë ºñÇà°Å¸®, projectileSpeed=¼Ó·Â.
+//  ê·¼ê±°ë¦¬(ê²€): ì§ìœ¡ë©´ì²´ ë²”ìœ„ ê³µê²©. range=ë°•ìŠ¤ ê¸¸ì´, width=ë°•ìŠ¤ í­.
+//  ì›ê±°ë¦¬(í™œ/ì´): íˆ¬ì‚¬ì²´. range=ìµœëŒ€ ë¹„í–‰ê±°ë¦¬, projectileSpeed=ì†ë ¥.
 // ============================================================================
 CombatResolver::WeaponData CombatResolver::GetWeaponData(int weaponKind)
 {
     switch (weaponKind)
     {
-        // ±Ù°Å¸®: ´ê´Â ¸ğµç ´ë»ó ÇÇ°İ (¹üÀ§)
-    case WEAPON_BIG_SWORD: return { 45, 3.5f, 3.0f, 900, false,  0.f };  // ¾ç¼Õ°Ë: ³Ğ°í °­ÇÔ, ´À¸²
-    case WEAPON_SWORD:     return { 20, 2.5f, 2.0f, 400, false,  0.f };  // ÇÑ¼Õ°Ë: Ç¥ÁØ
+        // ê·¼ê±°ë¦¬: ë‹¿ëŠ” ëª¨ë“  ëŒ€ìƒ í”¼ê²© (ë²”ìœ„)
+    case WEAPON_BIG_SWORD: return { 45, 3.5f, 3.0f, 900, false,  0.f };  // ì–‘ì†ê²€: ë„“ê³  ê°•í•¨, ëŠë¦¼
+    case WEAPON_SWORD:     return { 10, 2.5f, 2.0f, 400, false,  0.f };  // í•œì†ê²€: í‘œì¤€
 
-                     // ¿ø°Å¸®: Åõ»çÃ¼ 1¹ß (´ÜÀÏ ´ë»ó)
-                     // ¿ø°Å¸®: Åõ»çÃ¼ 1¹ß (´ÜÀÏ ´ë»ó). Å×½ºÆ®¿ëÀ¸·Î ¾ÆÁÖ ´À¸®°Ô ºñÇà.
-    case WEAPON_BOW:       return { 30, 15.0f, 0.f, 600, true,  6.f };  // È°: 6 m/s (ÃµÃµÈ÷)
-    case WEAPON_GUN:       return { 15, 20.0f, 0.f, 200, true,  8.f };  // ÃÑ: 8 m/s (ÃµÃµÈ÷)
+                     // ì›ê±°ë¦¬: íˆ¬ì‚¬ì²´ 1ë°œ (ë‹¨ì¼ ëŒ€ìƒ)
+                     // ì›ê±°ë¦¬: íˆ¬ì‚¬ì²´ 1ë°œ (ë‹¨ì¼ ëŒ€ìƒ). í…ŒìŠ¤íŠ¸ìš©ìœ¼ë¡œ ì•„ì£¼ ëŠë¦¬ê²Œ ë¹„í–‰.
+    case WEAPON_BOW:       return { 30, 15.0f, 0.f, 600, true,  6.f };  // í™œ: 6 m/s (ì²œì²œíˆ)
+    case WEAPON_GUN:       return { 15, 20.0f, 0.f, 200, true,  8.f };  // ì´: 8 m/s (ì²œì²œíˆ)
 
-    default:               return { 20, 2.5f, 2.0f, 400, false,  0.f };
+    default:               return { 10, 2.5f, 2.0f, 400, false,  0.f };
     }
 }
 
 // ============================================================================
-//  ±Ù°Å¸® Á÷À°¸éÃ¼(OBB) ÆÇÁ¤
-//   origin¿¡¼­ dir ¹æÇâÀ¸·Î ±æÀÌ length, Æø width ÀÎ ¹Ú½º ¾È¿¡ targetÀÌ ÀÖ´Â°¡.
-//   XZ Æò¸é ±âÁØ. forward Ãà [0, length], ÁÂ¿ì Ãà [-width/2, +width/2].
+//  ê·¼ê±°ë¦¬ ì§ìœ¡ë©´ì²´(OBB) íŒì •
+//   originì—ì„œ dir ë°©í–¥ìœ¼ë¡œ ê¸¸ì´ length, í­ width ì¸ ë°•ìŠ¤ ì•ˆì— targetì´ ìˆëŠ”ê°€.
+//   XZ í‰ë©´ ê¸°ì¤€. forward ì¶• [0, length], ì¢Œìš° ì¶• [-width/2, +width/2].
 // ============================================================================
 static bool InMeleeBox(const Vec3& origin, const Vec3& dir,
     float length, float width, const Vec3& target)
 {
     float dl = std::sqrt(dir.x * dir.x + dir.z * dir.z);
     if (dl < 1e-4f) return false;
-    float fx = dir.x / dl, fz = dir.z / dl;     // Á¤±ÔÈ­ forward
+    float fx = dir.x / dl, fz = dir.z / dl;     // ì •ê·œí™” forward
 
     float rx = target.x - origin.x;
     float rz = target.z - origin.z;
 
-    float forward = rx * fx + rz * fz;          // Àü¹æ °Å¸®
+    float forward = rx * fx + rz * fz;          // ì „ë°© ê±°ë¦¬
     if (forward < 0.f || forward > length) return false;
 
-    // ¿ìÃø Ãà = forward¸¦ -90µµ È¸ÀüÇÑ (fz, -fx). ±× Åõ¿µÀÇ Àı´ñ°ªÀÌ ÁÂ¿ì °Å¸®.
+    // ìš°ì¸¡ ì¶• = forwardë¥¼ -90ë„ íšŒì „í•œ (fz, -fx). ê·¸ íˆ¬ì˜ì˜ ì ˆëŒ“ê°’ì´ ì¢Œìš° ê±°ë¦¬.
     float side = rx * fz - rz * fx;
     if (std::fabs(side) > width * 0.5f) return false;
 
@@ -67,21 +67,21 @@ static bool InMeleeBox(const Vec3& origin, const Vec3& dir,
 void CombatResolver::HandleAttack(GameSession& session, int attackerId,
     const PlayerAttackRequest& req)
 {
-    // 1) °ø°İÀÚ °ËÁõ
+    // 1) ê³µê²©ì ê²€ì¦
     auto it = session.players.find(attackerId);
     if (it == session.players.end()) return;
     PlayerEntity& attacker = *it->second;
-    if (attacker.hp <= 0) return;          // Á×Àº ÀÚ´Â °ø°İ ¸ø ÇÔ
+    if (!attacker.IsActiveInWorld()) return;          // ì£½ì€ ìëŠ” ê³µê²© ëª» í•¨
 
-    // 2) Äğ´Ù¿î °Ë»ç
+    // 2) ì¿¨ë‹¤ìš´ ê²€ì‚¬
     long long nowMs = duration_cast<milliseconds>(
         system_clock::now().time_since_epoch()).count();
     WeaponData wd = GetWeaponData(req.weaponKind);
     if (nowMs - attacker.lastAttackTime < wd.cooldownMs)
-        return;                            // Äğ´Ù¿î ¹ÌÃæÁ·
+        return;                            // ì¿¨ë‹¤ìš´ ë¯¸ì¶©ì¡±
     attacker.lastAttackTime = nowMs;
 
-    // 3) PLAYER_ATTACK_BROADCAST: ¸ğµç ´Ù¸¥ Å¬¶ó¿¡°Ô ¾×¼Ç ¾Ö´Ï ¾Ë¸²
+    // 3) PLAYER_ATTACK_BROADCAST: ëª¨ë“  ë‹¤ë¥¸ í´ë¼ì—ê²Œ ì•¡ì…˜ ì• ë‹ˆ ì•Œë¦¼
     {
         PlayerAttackBroadcast pab{};
         pab.attackerId = attackerId;
@@ -94,19 +94,19 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
             &pab, sizeof(pab), attackerId);
     }
 
-    // °ø°İ ¹æÇâ °áÁ¤: Å¬¶ó°¡ º¸³½ dir ¿ì¼±, ¾øÀ¸¸é Ä³¸¯ÅÍ rotY·Î °è»ê.
-    Vec3 origin = attacker.position;       // À§Ä¡´Â ¼­¹ö ½Å·Ú
+    // ê³µê²© ë°©í–¥ ê²°ì •: í´ë¼ê°€ ë³´ë‚¸ dir ìš°ì„ , ì—†ìœ¼ë©´ ìºë¦­í„° rotYë¡œ ê³„ì‚°.
+    Vec3 origin = attacker.position;       // ìœ„ì¹˜ëŠ” ì„œë²„ ì‹ ë¢°
     Vec3 dir(req.dirX, 0.f, req.dirZ);
     if (dir.LengthSq() < 1e-6f)
     {
-        // Unity ±Ô¾à: yaw 0 = +Z, ½Ã°è¹æÇâ
+        // Unity ê·œì•½: yaw 0 = +Z, ì‹œê³„ë°©í–¥
         float rad = attacker.rotY * 3.14159265f / 180.f;
         dir = Vec3(std::sin(rad), 0.f, std::cos(rad));
     }
 
-    // ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
-    //  4) ¿ø°Å¸®: Åõ»çÃ¼ ¹ß»ç (´ÜÀÏ ´ë»óÀº Åõ»çÃ¼ ºñÇà Áß ÆÇÁ¤)
-    // ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  4) ì›ê±°ë¦¬: íˆ¬ì‚¬ì²´ ë°œì‚¬ (ë‹¨ì¼ ëŒ€ìƒì€ íˆ¬ì‚¬ì²´ ë¹„í–‰ ì¤‘ íŒì •)
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     if (wd.isRanged)
     {
         session.projSystem.Spawn(session, attackerId, req.weaponKind,
@@ -114,15 +114,15 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
         return;
     }
 
-    // ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
-    //  5) ±Ù°Å¸®: Á÷À°¸éÃ¼ ¹üÀ§ ¾È "¸ğµç" ´ë»ó ÇÇ°İ
-    // ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    //  5) ê·¼ê±°ë¦¬: ì§ìœ¡ë©´ì²´ ë²”ìœ„ ì•ˆ "ëª¨ë“ " ëŒ€ìƒ í”¼ê²©
+    // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
     int hitCount = 0;
 
-    // 5a) ¸ó½ºÅÍ (»ì¾ÆÀÖ´Â °Í ¸ğµÎ °Ë»ç)
+    // 5a) ëª¬ìŠ¤í„° (ì‚´ì•„ìˆëŠ” ê²ƒ ëª¨ë‘ ê²€ì‚¬)
     {
         auto& monsters = session.worldSim.GetMonsters();
-        // »ç¸Á/¸íÁßÀ¸·Î ÄÃ·º¼ÇÀÌ ¹Ù²îÁö ¾Êµµ·Ï ´ë»ó id ¸ÕÀú ¼öÁı
+        // ì‚¬ë§/ëª…ì¤‘ìœ¼ë¡œ ì»¬ë ‰ì…˜ì´ ë°”ë€Œì§€ ì•Šë„ë¡ ëŒ€ìƒ id ë¨¼ì € ìˆ˜ì§‘
         std::vector<int> targets;
         for (auto& kv : monsters)
         {
@@ -141,7 +141,7 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
 
             CombatEvent ce{};
             ce.attackerId = attackerId;
-            ce.targetId = -mid;             // À½¼ö = ¸ó½ºÅÍ
+            ce.targetId = -mid;             // ìŒìˆ˜ = ëª¬ìŠ¤í„°
             ce.damage = wd.damage;
             ce.weaponKind = req.weaponKind;
             ce.comboIndex = req.comboIndex;
@@ -156,18 +156,21 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
                 md.monsterId = mid;
                 md.killerId = attackerId;
                 session.Broadcast((int)PacketType::MONSTER_DIED, &md, sizeof(md), 0);
+
+                // ì²˜ì¹˜ ì‹œ ì „ë¦¬í’ˆ ìƒì„± (ì„œë²„ ê¶Œìœ„)
+                session.OnMonsterKilled(mid, attackerId);
             }
         }
     }
 
-    // 5b) ´Ù¸¥ ÇÃ·¹ÀÌ¾î (PvP, ¹Ú½º ¾È ¸ğµÎ)
+    // 5b) ë‹¤ë¥¸ í”Œë ˆì´ì–´ (PvP, ë°•ìŠ¤ ì•ˆ ëª¨ë‘)
     {
         std::vector<int> targets;
         for (auto& kv : session.players)
         {
             if (kv.first == attackerId) continue;
             const PlayerEntity& p = *kv.second;
-            if (p.hp <= 0) continue;
+            if (!p.IsActiveInWorld()) continue;
             if (InMeleeBox(origin, dir, wd.range, wd.width, p.position))
                 targets.push_back(p.clientId);
         }
@@ -183,7 +186,7 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
 
             CombatEvent ce{};
             ce.attackerId = attackerId;
-            ce.targetId = pid;              // ¾ç¼ö = ÇÃ·¹ÀÌ¾î
+            ce.targetId = pid;              // ì–‘ìˆ˜ = í”Œë ˆì´ì–´
             ce.damage = wd.damage;
             ce.weaponKind = req.weaponKind;
             ce.comboIndex = req.comboIndex;

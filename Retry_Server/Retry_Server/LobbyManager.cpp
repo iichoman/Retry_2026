@@ -329,11 +329,58 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
         }
     }
 
+    // 세션 종료 보고(IPC_SESSION_ENDED)를 받았을 때 어느 방인지 찾기 위해 기록.
+    sessionToRoom[sessionId] = room->roomId;
+
     Log::Info("게임 시작: sessionId=%d host=%d seed=%d 인원=%d",
         sessionId, room->hostClientId, mapSeed, (int)playerIds.size());
 
     // 방은 곧 비워질 거라 정리는 클라들이 disconnect 할 때 자연스럽게 됨.
     // 여기선 명시적으로 안 지움 (멤버들이 떠나면서 자동 정리).
+}
+
+// ============================================================================
+//  세션 종료 보고 처리 (Session_Manager → SessionEventReceiver → 여기)
+//
+//  세션이 끝나면 해당 방은 더 이상 의미가 없다.
+//   - 아직 로비에 붙어 있는 멤버는 ST_AUTHENTICATED(로비)로 되돌린다.
+//   - 방 자체를 제거한다 (게임 중 방을 유지할 이유가 없음).
+//  이미 접속을 끊고 나간 클라는 GetClient가 nullptr을 주므로 자연히 건너뛴다.
+// ============================================================================
+
+void LobbyManager::OnSessionEnded(int sessionId, int reason,
+    int totalPlayers, int survivors)
+{
+    std::lock_guard<std::mutex> lk(mtx);
+
+    Log::Info("세션 종료 보고 수신: sid=%d reason=%d 생존=%d/%d",
+        sessionId, reason, totalPlayers, survivors);
+
+    auto sit = sessionToRoom.find(sessionId);
+    if (sit == sessionToRoom.end())
+    {
+        Log::Warn("알 수 없는 sessionId=%d (이미 정리됨)", sessionId);
+        return;
+    }
+
+    int roomId = sit->second;
+    sessionToRoom.erase(sit);
+
+    RoomData* room = GetRoom(roomId);
+    if (!room) return;
+
+    // 멤버 상태 복귀 (남아있는 연결만).
+    std::vector<int> members = room->memberIds;
+    for (int memberId : members)
+    {
+        ClientConnection* mc = GetClient(memberId);
+        if (!mc) continue;
+        mc->currentRoomId = 0;
+        mc->state = ClientConnection::ST_AUTHENTICATED;
+    }
+
+    rooms.erase(roomId);
+    Log::Info("방 정리 완료: roomId=%d (세션 %d 종료)", roomId, sessionId);
 }
 
 // ============================================================================

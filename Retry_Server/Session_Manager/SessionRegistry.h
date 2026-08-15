@@ -1,10 +1,13 @@
 ﻿#pragma once
+#include <atomic>
 #include <memory>
 #include <mutex>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
 class GameSession;
+class LobbyReporter;
 
 // ============================================================================
 //  SessionRegistry
@@ -21,7 +24,8 @@ class GameSession;
 class SessionRegistry
 {
 public:
-    SessionRegistry();
+    // reporter: 세션 종료를 로비에 보고할 채널. nullptr이면 보고 생략.
+    explicit SessionRegistry(LobbyReporter* reporter = nullptr);
     ~SessionRegistry();
 
     // 세션 생성. 성공 시 true. 이미 있는 sessionId면 실패.
@@ -42,4 +46,12 @@ public:
 private:
     std::mutex                                                 mtx;
     std::unordered_map<int, std::unique_ptr<GameSession>>      sessions;
+    LobbyReporter*                                             reporter;
+
+    // 종료된 세션 회수 스레드.
+    // GameSession은 자기 틱 스레드 안에서 종료를 판정하므로 스스로를 지울 수 없다
+    // (join 자기 자신 → 데드락). 별도 스레드가 주기적으로 회수한다.
+    std::atomic_bool                                           reaping;
+    std::thread                                                reaper;
+    void ReapLoop();
 };

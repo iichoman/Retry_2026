@@ -1,0 +1,15 @@
+[Info]
+Version = 3
+
+[Effect]
+Obj = none
+Obj[0] = Shader\Acc.fx
+Obj[1] = Shader\Eyes.fx
+Obj[2] = Shader\HL.fx
+Obj[3] = Shader\Face.fx
+Obj[4] = Shader\Face.fx
+Obj[5] = Shader\Face.fx
+Obj[6] = Shader\Hair.fx
+Obj[7] = Shader\Clothes.fx
+Obj[8] = Shader\Skin.fx
+

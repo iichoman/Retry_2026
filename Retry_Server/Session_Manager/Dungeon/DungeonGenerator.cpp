@@ -15,9 +15,14 @@ static inline int   Mathf_Min(int a, int b) { return a < b ? a : b; }
 static inline int   Mathf_Clamp(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
 static inline int   Mathf_RoundToInt(float f)
 {
-    // Unity의 Mathf.RoundToInt는 bankers' rounding을 안 쓰고 일반 반올림.
-    // C++의 std::round 동작과 동일.
-    return (int)std::lround(f);
+    // Unity Mathf.RoundToInt는 .5에서 짝수로 반올림 (bankers' rounding).
+    // std::lround(.5 올림)와 다르므로 직접 구현. (예: 2.5 → 2, 3.5 → 4)
+    float fl = std::floor(f);
+    float diff = f - fl;
+    if (diff > 0.5f) return (int)fl + 1;
+    if (diff < 0.5f) return (int)fl;
+    int i = (int)fl;
+    return (i % 2 == 0) ? i : i + 1;
 }
 static inline int   Mathf_FloorToInt(float f) { return (int)std::floor(f); }
 
@@ -44,8 +49,9 @@ void DungeonGenerator::Generate(int seed)
 
     // 시작 방 후보 생성 + 팀 배정 (StartRoomManager.cs 1:1 포팅)
     {
+        // 주의: 클라는 thickness 인자로 mapHeight를 넘김 (GenerateDungeon 참고)
         auto candidates = BuildStartRoomCandidates(mapSize, baseRoomSize,
-            startRoomEdgeMargin, startRoomThickness);
+            startRoomEdgeMargin, mapHeight);
         // C#의 AssignTeams는 candidates를 입력받아 results를 반환.
         // 여기선 in-place로 occupied/teamId 설정 + assignedStartRooms에 직접 push.
         AssignTeams(candidates, teamCount, seed);
@@ -64,6 +70,7 @@ void DungeonGenerator::Generate(int seed)
 
     BuildRooms(root.get(), random);
     BuildBossRooms(random);
+    AssignExitRoom(random);   // 클라와 동일 시점. RNG 1회 소비 → 생략 시 이후 전부 desync
 
     floorTiles.clear();
     wallTiles.clear();
@@ -364,6 +371,30 @@ IntBounds DungeonGenerator::CreateCenteredBounds(int centerX, int centerZ, int w
     int startZ = Mathf_Clamp(centerZ - depth / 2, minZ, maxZ);
 
     return IntBounds(IntVec3(startX, 0, startZ), IntVec3(width, mapHeight, depth));
+}
+
+// ============================================================================
+//  AssignExitRoom - C# AssignExitRoom 1:1 포팅
+//  Normal 방 중 1개를 랜덤 선택해 Exit로 지정. random.Next 1회 소비 (동기화 필수).
+// ============================================================================
+void DungeonGenerator::AssignExitRoom(CSharpRandom& random)
+{
+    exitRoomId = -1;
+
+    if (!createExitRoom || rooms.empty()) return;
+
+    std::vector<int> candidateIdx;
+    for (int i = 0; i < (int)rooms.size(); ++i)
+    {
+        if (rooms[i].type != ROOM_TYPE_NORMAL) continue;
+        candidateIdx.push_back(i);
+    }
+
+    if (candidateIdx.empty()) return;
+
+    int pick = candidateIdx[random.Next(0, (int)candidateIdx.size())];
+    rooms[pick].type = ROOM_TYPE_EXIT;
+    exitRoomId = rooms[pick].id;
 }
 
 int DungeonGenerator::GetNextRoomId()

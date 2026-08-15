@@ -40,6 +40,10 @@ public:
     // 방 정리, 호스트 마이그레이션, 다른 멤버에게 통보 처리.
     void OnClientDisconnected(ClientConnection* conn);
 
+    // 세션 매니저가 IPC_SESSION_ENDED로 보고했을 때 호출 (SessionEventReceiver).
+    // 해당 세션의 방을 정리하고 아직 남아있는 멤버를 로비 상태로 되돌린다.
+    void OnSessionEnded(int sessionId, int reason, int totalPlayers, int survivors);
+
     // 정상 종료. 모든 클라/방 정리.
     void Shutdown();
 
@@ -48,6 +52,7 @@ private:
     std::unordered_map<int, std::unique_ptr<ClientConnection>>  authenticatedClients;
     std::unordered_map<int, std::unique_ptr<ClientConnection>>  pendingClients;   // 인증 전
     std::unordered_map<int, std::unique_ptr<RoomData>>          rooms;
+    std::unordered_map<int, int>                                sessionToRoom;   // sessionId → roomId
 
     int  nextClientId;
     int  nextRoomId;

@@ -16,7 +16,7 @@ bool RecvAll(SOCKET sock, char* buf, int length)
     while (total < length)
     {
         int n = recv(sock, buf + total, length - total, 0);
-        if (n <= 0) return false;       // 0=상대 정상 종료, -1=오류
+        if (n <= 0) return false; // 0=상대 정상 종료, -1=오류
         total += n;
     }
     return true;
@@ -47,7 +47,7 @@ bool SendPacket(SOCKET sock, int packetType,
     char buf[MAX_INLINE];
 
     int total = sizeof(h) + bodySize;
-    if (total > MAX_INLINE) return false;       // 큰 패킷은 호출자가 분할 책임
+    if (total > MAX_INLINE) return false; // 큰 패킷은 호출자가 분할 책임
 
     std::memcpy(buf, &h, sizeof(h));
     if (body && bodySize > 0)

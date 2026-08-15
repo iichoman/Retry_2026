@@ -36,6 +36,15 @@ public:
 
     int startPosResendTicks = 0;   // 본인 시작 위치 재송신 카운터
 
+    // ── 탈출 (서버 권위 판정) ─────────────────────────────────
+    // extracted: 탈출 완료. 월드에서 제외되지만 결과 수신을 위해 연결은 유지.
+    // extractionHoldSec: 탈출 방 안 연속 체류 시간. 방을 벗어나면 0으로 리셋.
+    bool  extracted = false;
+    float extractionHoldSec = 0.f;
+
+    // 월드 시뮬레이션 대상인지 (시야/전투/AI 타겟 공통 조건).
+    bool IsActiveInWorld() const { return hp > 0 && !extracted; }
+
     // 약한 참조: 클라 연결 객체. 소유권 없음.
     // 클라가 끊기면 nullptr로 설정됨. 재접속 시 다시 채워짐.
     SessionClientConnection* conn;

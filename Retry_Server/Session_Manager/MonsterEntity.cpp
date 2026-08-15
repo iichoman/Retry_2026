@@ -16,31 +16,31 @@ MonsterEntity::MonsterEntity(int monsterId, int monsterKind, const Vec3& spawnPo
     switch (monsterKind)
     {
     case MONSTER_BOSS:
-        hp = maxHp        = 5000;
-        moveSpeed         = 2.5f;
-        detectRange       = 25.0f;
-        attackRange       = 4.0f;
-        attackCooldownMs  = 1500.0f;
-        attackDamage      = 0; // 50
+        hp = maxHp = 5000;
+        moveSpeed = 2.5f;
+        detectRange = 25.0f;
+        attackRange = 4.0f;
+        attackCooldownMs = 6000.0f;
+        attackDamage = 5; // 보스 (원래 50)
         break;
 
     case MONSTER_ELITE:
-        hp = maxHp        = 800;
-        moveSpeed         = 3.5f;
-        detectRange       = 18.0f;
-        attackRange       = 2.5f;
-        attackCooldownMs  = 1000.0f;
-        attackDamage      = 0; // 25
+        hp = maxHp = 800;
+        moveSpeed = 3.5f;
+        detectRange = 18.0f;
+        attackRange = 2.5f;
+        attackCooldownMs = 4000.0f;
+        attackDamage = 5; // 정예 (원래 25)
         break;
 
     case MONSTER_NORMAL:
     default:
-        hp = maxHp        = 200;
-        moveSpeed         = 3.0f;
-        detectRange       = 12.0f;
-        attackRange       = 2.0f;
-        attackCooldownMs  = 1200.0f;
-        attackDamage      = 0; // 10
+        hp = maxHp = 200;
+        moveSpeed = 3.0f;
+        detectRange = 12.0f;
+        attackRange = 2.0f;
+        attackCooldownMs = 5000.0f;
+        attackDamage = 5; // 일반 (원래 10)
         break;
     }
 }
