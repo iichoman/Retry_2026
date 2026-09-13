@@ -1,8 +1,8 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 // ============================================================================
-//  DebugLobbyUI ÀÓ½Ã UI
-//  È­¸é ÁÂ»ó´Ü OnGUI. ¹æ ¸¸µé±â / Âü°¡ / ½ÃÀÛ.
+//  DebugLobbyUI ì„ì‹œ UI
+//  í™”ë©´ ì¢Œìƒë‹¨ OnGUI. ë°© ë§Œë“¤ê¸° / ì°¸ê°€ / ì‹œì‘.
 // ============================================================================
 public class DebugLobbyUI : MonoBehaviour
 {
@@ -28,11 +28,11 @@ public class DebugLobbyUI : MonoBehaviour
         {
             lastRoomId = roomId;
             inRoom = true;
-            lastResult = $"¹æ ÀÔÀå ¼º°ø: roomId={roomId}";
+            lastResult = $"ë°© ì…ì¥ ì„±ê³µ: roomId={roomId}";
         }
         else
         {
-            lastResult = "¹æ ÀÔÀå ½ÇÆĞ";
+            lastResult = "ë°© ì…ì¥ ì‹¤íŒ¨";
         }
     }
 
@@ -64,30 +64,30 @@ public class DebugLobbyUI : MonoBehaviour
 
         if (id != null && id.IsConnectedToSession)
         {
-            GUILayout.Label("°ÔÀÓ ÁøÇà Áß.", labelStyle);
+            GUILayout.Label("ê²Œì„ ì§„í–‰ ì¤‘.", labelStyle);
             GUILayout.EndArea();
             return;
         }
 
         if (id == null || !id.IsAuthenticated)
         {
-            GUILayout.Label("·Î±×ÀÎ Ã³¸® Áß...", labelStyle);
+            GUILayout.Label("ë¡œê·¸ì¸ ì²˜ë¦¬ ì¤‘...", labelStyle);
             GUILayout.EndArea();
             return;
         }
 
         GUILayout.Space(12);
-        GUILayout.Label("¹æ ÀÌ¸§:", labelStyle);
+        GUILayout.Label("ë°© ì´ë¦„:", labelStyle);
         roomNameInput = GUILayout.TextField(roomNameInput, textFieldStyle);
-        if (GUILayout.Button("¹æ ¸¸µé±â", btnStyle))
+        if (GUILayout.Button("ë°© ë§Œë“¤ê¸°", btnStyle))
         {
             bootstrap.Lobby.SendRoomCreate(roomNameInput);
         }
 
         GUILayout.Space(8);
-        GUILayout.Label("¹æ ID:", labelStyle);
+        GUILayout.Label("ë°© ID:", labelStyle);
         roomIdInput = GUILayout.TextField(roomIdInput, textFieldStyle);
-        if (GUILayout.Button("¹æ Âü°¡", btnStyle))
+        if (GUILayout.Button("ë°© ì°¸ê°€", btnStyle))
         {
             if (int.TryParse(roomIdInput, out int rid))
                 bootstrap.Lobby.SendRoomJoin(rid);
@@ -96,8 +96,8 @@ public class DebugLobbyUI : MonoBehaviour
         if (inRoom)
         {
             GUILayout.Space(16);
-            GUILayout.Label($"ÇöÀç ¹æ: {lastRoomId}", labelStyle);
-            if (GUILayout.Button("°ÔÀÓ ½ÃÀÛ (È£½ºÆ®)", btnStyle))
+            GUILayout.Label($"í˜„ì¬ ë°©: {lastRoomId}", labelStyle);
+            if (GUILayout.Button("ê²Œì„ ì‹œì‘ (í˜¸ìŠ¤íŠ¸)", btnStyle))
             {
                 bootstrap.Lobby.SendGameStart();
             }

@@ -17,7 +17,8 @@ bool SessionDispatcher::RequestSessionCreate(int sessionId,
     int hostClientId,
     int mapSeed,
     const std::vector<int>& playerIds,
-    const std::vector<int>& playerTeams)
+    const std::vector<int>& playerTeams,
+    const std::vector<std::string>& playerNames)
 {
     if ((int)playerIds.size() > MAX_SESSION_PLAYERS)
     {
@@ -60,6 +61,9 @@ bool SessionDispatcher::RequestSessionCreate(int sessionId,
     {
         ipc.playerIds[i] = playerIds[i];
         ipc.playerTeams[i] = (i < (int)playerTeams.size()) ? playerTeams[i] : 0;
+        // 채팅 표시용 이름. 세션 매니저는 로그인 정보를 모른다.
+        if (i < (int)playerNames.size())
+            std::strncpy(ipc.playerNames[i], playerNames[i].c_str(), MAX_PLAYER_NAME - 1);
     }
 
     bool sendOk = Net::SendPacket(sock,
@@ -73,7 +77,8 @@ bool SessionDispatcher::RequestSessionCreate(int sessionId,
     }
 
     // 3. 응답 대기 (세션 매니저가 같은 패킷을 다시 보내거나, 빈 응답)
-    char respBuf[1024];
+    // IpcCreateSession에 이름 배열이 들어가 1KB를 넘는다. 버퍼를 넉넉히.
+    char respBuf[4096];
     int n = Net::RecvPacket(sock, respBuf, sizeof(respBuf));
     closesocket(sock);
 

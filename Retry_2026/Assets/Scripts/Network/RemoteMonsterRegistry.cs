@@ -1,19 +1,19 @@
-using System.Collections.Generic;
+ï»¿using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
 // ============================================================================
 //  RemoteMonsterRegistry
 //
-//  ¼­¹ö ±ÇÀ§ ¸ó½ºÅÍ ½Ã½ºÅÛÀÇ Å¬¶ó Ãø Ç¥½Ã ´ã´ç.
-//   - MONSTER_ENTER_VIEW ¡æ prefab instantiate, id·Î µî·Ï
-//   - MONSTER_MOVE ¡æ À§Ä¡/aiState °»½Å (LerpÀ¸·Î ºÎµå·´°Ô)
-//   - MONSTER_LEAVE_VIEW ¡æ destroy
-//   - MONSTER_DIED ¡æ »ç¸Á Ã³¸® (Áï½Ã destroy ¶Ç´Â fade)
-//   - MONSTER_ATTACK_EVENT ¡æ °ø°İ ¾Ö´Ï Æ®¸®°Å
+//  ì„œë²„ ê¶Œìœ„ ëª¬ìŠ¤í„° ì‹œìŠ¤í…œì˜ í´ë¼ ì¸¡ í‘œì‹œ ë‹´ë‹¹.
+//   - MONSTER_ENTER_VIEW â†’ prefab instantiate, idë¡œ ë“±ë¡
+//   - MONSTER_MOVE â†’ ìœ„ì¹˜/aiState ê°±ì‹  (Lerpìœ¼ë¡œ ë¶€ë“œëŸ½ê²Œ)
+//   - MONSTER_LEAVE_VIEW â†’ destroy
+//   - MONSTER_DIED â†’ ì‚¬ë§ ì²˜ë¦¬ (ì¦‰ì‹œ destroy ë˜ëŠ” fade)
+//   - MONSTER_ATTACK_EVENT â†’ ê³µê²© ì• ë‹ˆ íŠ¸ë¦¬ê±°
 //
-//  Áß¿ä: Å¬¶óÀÇ Monster.cs´Â ÀÚÃ¼ AI¸¦ °¡Áö¹Ç·Î ¼­¹ö ±ÇÀ§ ¸ğµå¿¡¼­
-//        ¹İµå½Ã ºñÈ°¼ºÈ­. ENTER_VIEW¿¡¼­ instantiate Á÷ÈÄ Ã³¸®.
+//  ì¤‘ìš”: í´ë¼ì˜ Monster.csëŠ” ìì²´ AIë¥¼ ê°€ì§€ë¯€ë¡œ ì„œë²„ ê¶Œìœ„ ëª¨ë“œì—ì„œ
+//        ë°˜ë“œì‹œ ë¹„í™œì„±í™”. ENTER_VIEWì—ì„œ instantiate ì§í›„ ì²˜ë¦¬.
 // ============================================================================
 public class RemoteMonsterRegistry : MonoBehaviour
 {
@@ -25,7 +25,7 @@ public class RemoteMonsterRegistry : MonoBehaviour
     {
         public GameObject go;
         public Animator animator;
-        public Component monsterState;          // Monster_State (ÀÖÀ¸¸é)
+        public Component monsterState;          // Monster_State (ìˆìœ¼ë©´)
         public bool isDead;                     // server-confirmed death (corpse)
         public FieldInfo hpBackingField;        // <CurrentHp>k__BackingField
 
@@ -36,8 +36,8 @@ public class RemoteMonsterRegistry : MonoBehaviour
 
     private void Update()
     {
-        // À§Ä¡/È¸Àü ºÎµå·´°Ô º¸°£ (¼­¹ö 50ms °»½Å ¡æ LerpÀ¸·Î ½Ã°¢Àû ºÎµå·¯¿ò)
-        float lerpRate = 1f - Mathf.Exp(-15f * Time.deltaTime);   // ½Ã°£µ¶¸³Àû Lerp
+        // ìœ„ì¹˜/íšŒì „ ë¶€ë“œëŸ½ê²Œ ë³´ê°„ (ì„œë²„ 50ms ê°±ì‹  â†’ Lerpìœ¼ë¡œ ì‹œê°ì  ë¶€ë“œëŸ¬ì›€)
+        float lerpRate = 1f - Mathf.Exp(-15f * Time.deltaTime);   // ì‹œê°„ë…ë¦½ì  Lerp
         foreach (var kv in entries)
         {
             var e = kv.Value;
@@ -49,13 +49,13 @@ public class RemoteMonsterRegistry : MonoBehaviour
         }
     }
 
-    // ¦¡¦¡ ÆĞÅ¶ Ã³¸® ÁøÀÔÁ¡µé ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ íŒ¨í‚· ì²˜ë¦¬ ì§„ì…ì ë“¤ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public void OnEnterView(MonsterEnterView p)
     {
         if (entries.ContainsKey(p.monsterId))
         {
-            // ÀÌ¹Ì ÀÖÀ½ (½Ã¾ß ÀçÁøÀÔ µî) ¡æ À§Ä¡¸¸ °»½Å
+            // ì´ë¯¸ ìˆìŒ (ì‹œì•¼ ì¬ì§„ì… ë“±) â†’ ìœ„ì¹˜ë§Œ ê°±ì‹ 
             var existing = entries[p.monsterId];
             existing.targetPos = new Vector3(p.posX, p.posY, p.posZ);
             existing.targetYaw = p.rotY;
@@ -64,7 +64,7 @@ public class RemoteMonsterRegistry : MonoBehaviour
 
         if (MonsterPrefab == null)
         {
-            Debug.LogError("[RemoteMonsters] MonsterPrefab ¹Ì¼³Á¤!");
+            Debug.LogError("[RemoteMonsters] MonsterPrefab ë¯¸ì„¤ì •!");
             return;
         }
 
@@ -73,13 +73,13 @@ public class RemoteMonsterRegistry : MonoBehaviour
         var go = Instantiate(MonsterPrefab, spawnPos, spawnRot, transform);
         go.name = $"RemoteMonster_{p.monsterId}({(MonsterKind)p.monsterKind})";
 
-        // Á¾·ùº° ½Ã°¢ Â÷º°È­ (°£´ÜÈ÷ ½ºÄÉÀÏ/»ö»ó)
+        // ì¢…ë¥˜ë³„ ì‹œê° ì°¨ë³„í™” (ê°„ë‹¨íˆ ìŠ¤ì¼€ì¼/ìƒ‰ìƒ)
         ApplyKindVisuals(go, p.monsterKind);
 
-        // ÀÚÃ¼ AI ÄÄÆ÷³ÍÆ® ºñÈ°¼ºÈ­ (Monster.cs°¡ Update¿¡¼­ OverlapSphere ÇÔ)
+        // ìì²´ AI ì»´í¬ë„ŒíŠ¸ ë¹„í™œì„±í™” (Monster.csê°€ Updateì—ì„œ OverlapSphere í•¨)
         DisableLocalAI(go);
 
-        // HP µî µ¿±âÈ­¿ë reflection Ä³½Ì
+        // HP ë“± ë™ê¸°í™”ìš© reflection ìºì‹±
         var entry = new RemoteMonsterEntry
         {
             go = go,
@@ -96,7 +96,7 @@ public class RemoteMonsterRegistry : MonoBehaviour
             entry.hpBackingField = ms.GetType().GetField(
                 "<CurrentHp>k__BackingField",
                 BindingFlags.Instance | BindingFlags.NonPublic);
-            // maxHp´Â SerializeField. ±âÁ¸ °ª À¯Áö ¶Ç´Â reflectionÀ¸·Î º¯°æ °¡´É.
+            // maxHpëŠ” SerializeField. ê¸°ì¡´ ê°’ ìœ ì§€ ë˜ëŠ” reflectionìœ¼ë¡œ ë³€ê²½ ê°€ëŠ¥.
             var ms0 = entry.monsterState as Monster_State;
             if (ms0 != null)
             {
@@ -124,11 +124,11 @@ public class RemoteMonsterRegistry : MonoBehaviour
         e.targetPos = new Vector3(p.posX, p.posY, p.posZ);
         e.targetYaw = p.rotY;
 
-        // aiState º¯È­: ATTACK ÁøÀÔ ½Ã ¾Ö´Ï Æ®¸®°Å
+        // aiState ë³€í™”: ATTACK ì§„ì… ì‹œ ì• ë‹ˆ íŠ¸ë¦¬ê±°
         if (e.aiState != p.aiState)
         {
             e.aiState = p.aiState;
-            // ÃßÈÄ: aiStateº° ¾Ö´Ï Ã³¸® (AnimatorÀÇ trigger »ç¿ë °¡´É)
+            // ì¶”í›„: aiStateë³„ ì• ë‹ˆ ì²˜ë¦¬ (Animatorì˜ trigger ì‚¬ìš© ê°€ëŠ¥)
         }
     }
 
@@ -165,30 +165,36 @@ public class RemoteMonsterRegistry : MonoBehaviour
         }
     }
 
-    /// <summary>7´Ü°è: COMBAT_EVENT·Î ¹ŞÀº ¸ó½ºÅÍ HP °»½Å.</summary>
+    /// <summary>7ë‹¨ê³„: COMBAT_EVENTë¡œ ë°›ì€ ëª¬ìŠ¤í„° HP ê°±ì‹ .</summary>
     public void OnHpChanged(int monsterId, int hp)
     {
         if (!entries.TryGetValue(monsterId, out var e)) return;
         ApplyHp(e, hp);
     }
 
-    // ¦¡¦¡ ÇïÆÛ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ í—¬í¼ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     private void DisableLocalAI(GameObject go)
     {
-        // ÀÚÃ¼ AI/Å¸°Ù °¨Áö¸¦ ²û. ½Ã°¢ ÄÄÆ÷³ÍÆ®(Animator, MeshRenderer)´Â »ì¸².
+        // ìì²´ AI/íƒ€ê²Ÿ ê°ì§€ë¥¼ ë”. ì‹œê° ì»´í¬ë„ŒíŠ¸(Animator, MeshRenderer)ëŠ” ì‚´ë¦¼.
         var monster = go.GetComponent("Monster") as MonoBehaviour;
         if (monster != null) monster.enabled = false;
 
-        // Monster_movetest´Â Á¦°Å (ÀÌµ¿À» ÀÚÃ¼ Ã³¸®ÇÏ¸é ¾È µÊ)
+        // Monster_movetestëŠ” ì œê±° (ì´ë™ì„ ìì²´ ì²˜ë¦¬í•˜ë©´ ì•ˆ ë¨)
         var moveTest = go.GetComponent("Monster_movetest") as MonoBehaviour;
         if (moveTest != null) moveTest.enabled = false;
 
-        // NavMeshAgent ºñÈ°¼ºÈ­ (¼­¹ö°¡ À§Ä¡ °áÁ¤)
+        // NavMeshAgent ë¹„í™œì„±í™” (ì„œë²„ê°€ ìœ„ì¹˜ ê²°ì •)
         var nav = go.GetComponent<UnityEngine.AI.NavMeshAgent>();
-        if (nav != null) nav.enabled = false;
+        if (nav != null)
+        {
+            // BaseOffsetì€ í”„ë¦¬íŒ¹ì— 10ì´ ë“¤ì–´ê°€ ìˆì„ ìˆ˜ ìˆë‹¤. ì„œë²„ê°€ ì´ë¯¸ ë°”ë‹¥ ìœ—ë©´
+            // ì¢Œí‘œë¥¼ ë³´ë‚´ë¯€ë¡œ 0ìœ¼ë¡œ ë‚´ë ¤ ë‘ì§€ ì•Šìœ¼ë©´ ì¬í™œì„±í™” ì‹œ ê³µì¤‘ì— ëœ¬ë‹¤.
+            nav.baseOffset = 0f;
+            nav.enabled = false;
+        }
 
-        // Monster_Attackµµ ÀÚÃ¼ µ¿ÀÛ ¸·±â (¼­¹ö°¡ °ø°İ °áÁ¤)
+        // Monster_Attackë„ ìì²´ ë™ì‘ ë§‰ê¸° (ì„œë²„ê°€ ê³µê²© ê²°ì •)
         var attack = go.GetComponent("Monster_Attack") as MonoBehaviour;
         if (attack != null) attack.enabled = false;
 
@@ -199,7 +205,7 @@ public class RemoteMonsterRegistry : MonoBehaviour
 
     private void ApplyKindVisuals(GameObject go, int monsterKind)
     {
-        // ÀÓ½Ã: Á¾·ùº° ½ºÄÉÀÏ º¯°æ
+        // ì„ì‹œ: ì¢…ë¥˜ë³„ ìŠ¤ì¼€ì¼ ë³€ê²½
         switch ((MonsterKind)monsterKind)
         {
             case MonsterKind.NORMAL: go.transform.localScale = Vector3.one * 1.0f; break;

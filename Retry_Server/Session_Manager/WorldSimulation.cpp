@@ -59,7 +59,8 @@ void WorldSimulation::SpawnMonsters(const DungeonGenerator& dungeon, int seed)
             int idx = random.Next(0, (int)floorList.size());
             const IntVec3& tile = floorList[idx];
             // 격자 좌표 → 월드 좌표 (worldOffset 적용된 것)
-            Vec3 worldPos = dungeon.TileToWorldCenter(tile);
+            // 바닥 윗면에 세운다. TileToWorldCenter(y=0)를 쓰면 바닥 아래라 추락한다.
+            Vec3 worldPos = dungeon.TileToFloorTop(tile);
 
             int mid = nextMonsterId++;
             auto m = std::make_unique<MonsterEntity>(mid, monsterKind, worldPos);

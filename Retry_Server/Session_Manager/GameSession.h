@@ -10,6 +10,7 @@
 #include <memory>
 #include <mutex>
 #include <thread>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -50,6 +51,7 @@ public:
     GameSession(int sid, int hid, int seed,
         const std::vector<int>& allowedPlayerIds,
         const std::vector<int>& playerTeams,
+        const std::vector<std::string>& playerNames,
         LobbyReporter* reporter = nullptr);
     ~GameSession();
 
@@ -64,6 +66,18 @@ public:
     // LootSystem이 플레이어를 조회할 때 사용 (mtx 잠긴 상태에서만 호출).
     PlayerEntity* GetPlayerForLoot(int clientId) { return GetPlayer(clientId); }
 
+    // 피아식별. 같은 팀이면 true → 공격이 통하지 않는다.
+    // 둘 중 하나라도 팀 미배정(-1)이면 적으로 취급해 공격을 허용한다.
+    bool IsSameTeam(int clientA, int clientB) const
+    {
+        if (clientA == clientB) return true;
+        auto a = playerTeamMap.find(clientA);
+        auto b = playerTeamMap.find(clientB);
+        if (a == playerTeamMap.end() || b == playerTeamMap.end()) return false;
+        if (a->second < 0 || b->second < 0) return false;
+        return a->second == b->second;
+    }
+
     // 몬스터 사망 시 전리품 생성 (CombatResolver/ProjectileSystem이 호출).
     void OnMonsterKilled(int monsterId, int killerClientId);
     void AttachClient(int clientId, SessionClientConnection* conn);
@@ -76,6 +90,7 @@ public:
 private:
     std::unordered_set<int>                                    allowedPlayers;
     std::unordered_map<int, int>                               playerTeamMap;   // clientId → 로비 선택 팀(0..MAX_TEAMS-1)
+    std::unordered_map<int, std::string>                       playerNameMap;   // clientId → 표시 이름(채팅/시야)
     std::recursive_mutex                                       mtx;
     std::unordered_map<int, std::unique_ptr<PlayerEntity>>     players;
 
@@ -97,6 +112,17 @@ private:
     std::atomic_bool                                           running;
     std::thread                                                tickThread;
 
+    // ── 동시 입장 배리어 ──────────────────────────────────────
+    // 클라마다 던전 생성 시간이 달라서 먼저 들어온 사람만 시간이 흐르고
+    // 몬스터에게 먼저 맞는다. 전원이 붙을 때까지 시뮬레이션을 멈추고,
+    // 다 모이면 SESSION_START_GAME을 한꺼번에 보내 같이 시작한다.
+    std::atomic_bool                                           gameStarted{ false };
+    double                                                     preStartElapsed{ 0.0 };
+    static constexpr double                                    START_TIMEOUT_SEC = 20.0;
+
+    // mtx 잠긴 상태에서 호출. 전원 입장(또는 타임아웃)이면 시작 신호를 보낸다.
+    void TryStartGame(bool force = false);
+
     void TickLoop();
     void TickStep(float dt);
 
@@ -107,6 +133,8 @@ private:
     void HandlePlayerAttack(int clientId, const char* body, int bodySize);
     void HandleExtraction(int clientId, const char* body, int bodySize);
     void HandleItemPickup(int clientId, const char* body, int bodySize);
+    // 채팅. PARTY=세션 전원, TEAM=같은 팀.
+    void HandleChat(int clientId, const char* body, int bodySize);
 
     // [디버그 치트] 탈출 방 근처로 이동. 배포 시 이 선언과 구현 삭제.
     void HandleDebugTeleportExit(int clientId);

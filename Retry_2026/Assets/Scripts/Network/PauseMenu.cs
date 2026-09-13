@@ -56,6 +56,8 @@ public class PauseMenu : MonoBehaviour
             else if (isOpen) RebuildButtons();  // 부활 등으로 살아나면 버튼 갱신
         }
 
+        if (ChatUI.IsTyping) return;   // 채팅 입력 중 Esc는 채팅을 닫는 데 쓴다
+
         var kb = Keyboard.current;
         if (kb != null && kb.escapeKey.wasPressedThisFrame)
         {

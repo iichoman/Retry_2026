@@ -1,29 +1,29 @@
-using System.Collections.Generic;
+ï»¿using System.Collections.Generic;
 using UnityEngine;
 
 // ============================================================================
 //  RemoteProjectileRegistry
 //
-//  ¼­¹ö°¡ º¸³»´Â ¿ø°Å¸® Åõ»çÃ¼(È°/ÃÑÀÇ Á÷À°¸éÃ¼)¸¦ ¿ùµå¿¡ Ç¥½ÃÇÑ´Ù.
-//   - OnSpawn   : Á÷À°¸éÃ¼ »ı¼º (Å©±â´Â projectileSize·Î °íÁ¤)
-//   - OnMove    : À§Ä¡ °»½Å (Æ½ »çÀÌ º¸°£)
-//   - OnDespawn : Á¦°Å. º»ÀÎÀÌ ½ğ °ÍÀÌ¸é OnLocalProjectileGone ÀÌº¥Æ® ¹ß»ı
-//                 (LocalPlayerAttackSender°¡ ±¸µ¶ÇØ ¹ÌÄí ¼Õ Cube¸¦ º¹±Í½ÃÅ´)
+//  ì„œë²„ê°€ ë³´ë‚´ëŠ” ì›ê±°ë¦¬ íˆ¬ì‚¬ì²´(í™œ/ì´ì˜ ì§ìœ¡ë©´ì²´)ë¥¼ ì›”ë“œì— í‘œì‹œí•œë‹¤.
+//   - OnSpawn   : ì§ìœ¡ë©´ì²´ ìƒì„± (í¬ê¸°ëŠ” projectileSizeë¡œ ê³ ì •)
+//   - OnMove    : ìœ„ì¹˜ ê°±ì‹  (í‹± ì‚¬ì´ ë³´ê°„)
+//   - OnDespawn : ì œê±°. ë³¸ì¸ì´ ìœ ê²ƒì´ë©´ OnLocalProjectileGone ì´ë²¤íŠ¸ ë°œìƒ
+//                 (LocalPlayerAttackSenderê°€ êµ¬ë…í•´ ë¯¸ì¿  ì† Cubeë¥¼ ë³µê·€ì‹œí‚´)
 //
-//  ¼­¹ö°¡ ¸ğµç Ãæµ¹/¼Ò¸ê/ºñÇàÀ» ÆÇÁ¤ÇÏ¹Ç·Î Å¬¶ó´Â Ç¥½Ã¸¸ ´ã´çÇÑ´Ù.
+//  ì„œë²„ê°€ ëª¨ë“  ì¶©ëŒ/ì†Œë©¸/ë¹„í–‰ì„ íŒì •í•˜ë¯€ë¡œ í´ë¼ëŠ” í‘œì‹œë§Œ ë‹´ë‹¹í•œë‹¤.
 // ============================================================================
 public class RemoteProjectileRegistry : MonoBehaviour
 {
-    [Tooltip("Åõ»çÃ¼·Î ¾µ prefab. ºñ¿ì¸é Cube¸¦ ÀÚµ¿ »ı¼º.")]
+    [Tooltip("íˆ¬ì‚¬ì²´ë¡œ ì“¸ prefab. ë¹„ìš°ë©´ Cubeë¥¼ ìë™ ìƒì„±.")]
     public GameObject ProjectilePrefab;
 
-    [Tooltip("Åõ»çÃ¼ ÇÑ º¯ÀÇ Å©±â(m). ¼Õ Cubeº¸´Ù ÀÛ°Ô º¸ÀÌ´Â ¹®Á¦ ¹æÁö¿ë °íÁ¤ Å©±â.")]
+    [Tooltip("íˆ¬ì‚¬ì²´ í•œ ë³€ì˜ í¬ê¸°(m). ì† Cubeë³´ë‹¤ ì‘ê²Œ ë³´ì´ëŠ” ë¬¸ì œ ë°©ì§€ìš© ê³ ì • í¬ê¸°.")]
     [SerializeField] private Vector3 projectileScale = new Vector3(0.3f, 0.3f, 1.5f);
 
-    // º»ÀÎ ¹ß»çÃ¼ ÆÇÁ¤¿ë. NetworkBootstrapÀÌ ÁÖÀÔ.
+    // ë³¸ì¸ ë°œì‚¬ì²´ íŒì •ìš©. NetworkBootstrapì´ ì£¼ì….
     public LocalIdentity LocalIdentity;
 
-    // º»ÀÎÀÌ ½ğ Åõ»çÃ¼°¡ »ç¶óÁú ¶§ È£Ãâ (¼Õ Cube º¹±Í µî). LocalPlayerAttackSender°¡ ±¸µ¶.
+    // ë³¸ì¸ì´ ìœ íˆ¬ì‚¬ì²´ê°€ ì‚¬ë¼ì§ˆ ë•Œ í˜¸ì¶œ (ì† Cube ë³µê·€ ë“±). LocalPlayerAttackSenderê°€ êµ¬ë….
     public System.Action OnLocalProjectileGone;
 
     private readonly Dictionary<int, GameObject> active = new Dictionary<int, GameObject>();
@@ -38,7 +38,7 @@ public class RemoteProjectileRegistry : MonoBehaviour
         if (ProjectilePrefab != null)
         {
             go = Instantiate(ProjectilePrefab);
-            go.transform.SetParent(null, true);    // ¼Õ¿¡ ºÙÁö ¾Êµµ·Ï ¿ùµå ·çÆ®·Î
+            go.transform.SetParent(null, true);    // ì†ì— ë¶™ì§€ ì•Šë„ë¡ ì›”ë“œ ë£¨íŠ¸ë¡œ
         }
         else
         {
@@ -47,14 +47,14 @@ public class RemoteProjectileRegistry : MonoBehaviour
             if (col != null) Destroy(col);
         }
 
-        // ±âÈ¹¿¡ ¸Â´Â Á÷À°¸éÃ¼ ½ºÄÉÀÏ(Vector3) Àû¿ë
+        // ê¸°íšì— ë§ëŠ” ì§ìœ¡ë©´ì²´ ìŠ¤ì¼€ì¼(Vector3) ì ìš©
         go.transform.localScale = projectileScale;
 
         go.name = $"Projectile_{sp.projectileId}";
         Vector3 pos = new Vector3(sp.posX, sp.posY, sp.posZ);
         go.transform.position = pos;
 
-        // ÁøÇà ¹æÇâÀ¸·Î È¸Àü
+        // ì§„í–‰ ë°©í–¥ìœ¼ë¡œ íšŒì „
         Vector3 dir = new Vector3(sp.dirX, sp.dirY, sp.dirZ);
         if (dir.sqrMagnitude > 0.0001f)
             go.transform.rotation = Quaternion.LookRotation(dir.normalized);
@@ -75,11 +75,11 @@ public class RemoteProjectileRegistry : MonoBehaviour
         if (active.TryGetValue(dp.projectileId, out var go) && go != null)
         {
             go.transform.position = new Vector3(dp.posX, dp.posY, dp.posZ);
-            // TODO: hitTypeº° ÀÌÆåÆ® (0=º®,1=¸ó½ºÅÍ,2=ÇÃ·¹ÀÌ¾î,3=¼ö¸í)
+            // TODO: hitTypeë³„ ì´í™íŠ¸ (0=ë²½,1=ëª¬ìŠ¤í„°,2=í”Œë ˆì´ì–´,3=ìˆ˜ëª…)
             Destroy(go);
         }
 
-        // º»ÀÎÀÌ ½ğ Åõ»çÃ¼¸é ÀÌº¥Æ® ¹ß»ı (¼Õ Cube º¹±Í)
+        // ë³¸ì¸ì´ ìœ íˆ¬ì‚¬ì²´ë©´ ì´ë²¤íŠ¸ ë°œìƒ (ì† Cube ë³µê·€)
         if (LocalIdentity != null &&
             ownerOf.TryGetValue(dp.projectileId, out int owner) &&
             owner == LocalIdentity.LocalClientId)
@@ -94,7 +94,7 @@ public class RemoteProjectileRegistry : MonoBehaviour
 
     private void Update()
     {
-        // ¼­¹ö Æ½(50ms) »çÀÌ¸¦ º¸°£. ¼Óµµ°¡ ´À¸®¹Ç·Î ºÎµå·´°Ô µû¶ó°¨.
+        // ì„œë²„ í‹±(50ms) ì‚¬ì´ë¥¼ ë³´ê°„. ì†ë„ê°€ ëŠë¦¬ë¯€ë¡œ ë¶€ë“œëŸ½ê²Œ ë”°ë¼ê°.
         foreach (var kv in active)
         {
             if (kv.Value == null) continue;

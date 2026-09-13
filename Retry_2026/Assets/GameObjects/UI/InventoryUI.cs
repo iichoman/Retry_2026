@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.EventSystems;
 using UnityEngine.UI;
@@ -47,6 +47,19 @@ public class InventoryUI : MonoBehaviour
         {
             inventory.InventoryChanged -= Refresh;
         }
+    }
+
+    /// <summary>표시 대상 인벤토리/장비를 지금 살아 있는 것으로 다시 잡는다.</summary>
+    public void RebindOwner(PlayerInventory inv, PlayerEquipment equip)
+    {
+        if (inventory != null) inventory.InventoryChanged -= Refresh;
+        inventory = inv;
+        if (inventory != null) inventory.InventoryChanged += Refresh;
+
+        playerEquipment = equip;
+
+        EnsureSlotViews();
+        Refresh(inventory);
     }
 
     public void SetVisible(bool visible)

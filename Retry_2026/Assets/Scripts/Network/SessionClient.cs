@@ -1,16 +1,16 @@
-using System;
+ï»¿using System;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using UnityEngine;
 
 // ============================================================================
 //  SessionClient
-//  ¼¼¼Ç ¼­¹ö(SESSION_ASSIGNÀ¸·Î ¹ŞÀº ip:port)¿ÍÀÇ TCP Åë½Å.
+//  ì„¸ì…˜ ì„œë²„(SESSION_ASSIGNìœ¼ë¡œ ë°›ì€ ip:port)ì™€ì˜ TCP í†µì‹ .
 //
-//  ¿¬°á Á÷ÈÄ Ã³¸®:
-//   - 8¹ÙÀÌÆ® raw ÀÎÁõ µ¥ÀÌÅÍ (sessionId 4 + clientId 4) ¼Û½Å
-//   - ÀÎÁõÀº ¼­¹ö°¡ ¹¬½ÃÀûÀ¸·Î Ã³¸®. ÀÀ´ä ¾øÀ½.
-//   - ÀÌÈÄ Ç¥ÁØ ÆĞÅ¶ ¼Û¼ö½Å.
+//  ì—°ê²° ì§í›„ ì²˜ë¦¬:
+//   - 8ë°”ì´íŠ¸ raw ì¸ì¦ ë°ì´í„° (sessionId 4 + clientId 4) ì†¡ì‹ 
+//   - ì¸ì¦ì€ ì„œë²„ê°€ ë¬µì‹œì ìœ¼ë¡œ ì²˜ë¦¬. ì‘ë‹µ ì—†ìŒ.
+//   - ì´í›„ í‘œì¤€ íŒ¨í‚· ì†¡ìˆ˜ì‹ .
 // ============================================================================
 public class SessionClient
 {
@@ -25,7 +25,7 @@ public class SessionClient
 
     public bool IsConnected => tcp != null && tcp.Connected;
 
-    /// <summary>¿¬°á + 8¹ÙÀÌÆ® raw ÀÎÁõ ¼Û½Å (sessionId, clientId).</summary>
+    /// <summary>ì—°ê²° + 8ë°”ì´íŠ¸ raw ì¸ì¦ ì†¡ì‹  (sessionId, clientId).</summary>
     public bool ConnectAndAuth(string ip, int port, int sessionId, int clientId)
     {
         try
@@ -36,19 +36,19 @@ public class SessionClient
             stream = tcp.GetStream();
             assemblyUsed = 0;
 
-            // 8¹ÙÀÌÆ® raw ÀÎÁõ
+            // 8ë°”ì´íŠ¸ raw ì¸ì¦
             byte[] authBuf = new byte[8];
             Buffer.BlockCopy(BitConverter.GetBytes(sessionId), 0, authBuf, 0, 4);
             Buffer.BlockCopy(BitConverter.GetBytes(clientId), 0, authBuf, 4, 4);
             stream.Write(authBuf, 0, 8);
 
-            Debug.Log($"<color=cyan>[Session] ¿¬°á+ÀÎÁõ ¼º°ø {ip}:{port} sid={sessionId} cid={clientId}</color>");
+            Debug.Log($"<color=cyan>[Session] ì—°ê²°+ì¸ì¦ ì„±ê³µ {ip}:{port} sid={sessionId} cid={clientId}</color>");
             OnConnected?.Invoke();
             return true;
         }
         catch (Exception e)
         {
-            Debug.LogError($"[Session] ¿¬°á ½ÇÆĞ: {e.Message}");
+            Debug.LogError($"[Session] ì—°ê²° ì‹¤íŒ¨: {e.Message}");
             tcp = null;
             stream = null;
             return false;
@@ -62,7 +62,7 @@ public class SessionClient
         tcp = null;
         stream = null;
         OnDisconnected?.Invoke();
-        Debug.Log("[Session] ¿¬°á Á¾·á");
+        Debug.Log("[Session] ì—°ê²° ì¢…ë£Œ");
     }
 
     public void Poll()
@@ -75,7 +75,7 @@ public class SessionClient
                 int free = assembly.Length - assemblyUsed;
                 if (free <= 0)
                 {
-                    Debug.LogError("[Session] ¾î¼Àºí¸® ¹öÆÛ °¡µæ.");
+                    Debug.LogError("[Session] ì–´ì…ˆë¸”ë¦¬ ë²„í¼ ê°€ë“.");
                     Disconnect();
                     return;
                 }
@@ -90,7 +90,7 @@ public class SessionClient
                 var header = PacketIO.BytesToStruct<PacketHeader>(assembly, 0);
                 if (header.size < 0 || header.size > assembly.Length - headerSize)
                 {
-                    Debug.LogError($"[Session] ºñÁ¤»ó ÆĞÅ¶ size={header.size}");
+                    Debug.LogError($"[Session] ë¹„ì •ìƒ íŒ¨í‚· size={header.size}");
                     Disconnect();
                     return;
                 }
@@ -101,7 +101,7 @@ public class SessionClient
                 Buffer.BlockCopy(assembly, headerSize, body, 0, header.size);
 
                 try { OnPacketReceived?.Invoke(header.type, body); }
-                catch (Exception ex) { Debug.LogError($"[Session] ÇÚµé·¯ ¿¹¿Ü: {ex}"); }
+                catch (Exception ex) { Debug.LogError($"[Session] í•¸ë“¤ëŸ¬ ì˜ˆì™¸: {ex}"); }
 
                 Buffer.BlockCopy(assembly, total, assembly, 0, assemblyUsed - total);
                 assemblyUsed -= total;
@@ -109,12 +109,12 @@ public class SessionClient
         }
         catch (Exception e)
         {
-            Debug.LogError($"[Session] Poll ¿À·ù: {e.Message}");
+            Debug.LogError($"[Session] Poll ì˜¤ë¥˜: {e.Message}");
             Disconnect();
         }
     }
 
-    // ¦¡¦¡ ¼Û½Å ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ ì†¡ì‹  â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public void SendPlayerInput(PlayerInput input)
     {
@@ -126,24 +126,30 @@ public class SessionClient
         SendStruct(PacketType.PLAYER_ATTACK_REQUEST, req);
     }
 
-    /// <summary>Å»Ãâ ¿äÃ» ¼Û½Å. ¼º¸³ ¿©ºÎ´Â ¼­¹ö°¡ ÆÇÁ¤ÇÑ´Ù.</summary>
+    /// <summary>íƒˆì¶œ ìš”ì²­ ì†¡ì‹ . ì„±ë¦½ ì—¬ë¶€ëŠ” ì„œë²„ê°€ íŒì •í•œë‹¤.</summary>
     public void SendExtractionRequest(int extractionPointId)
     {
         var req = new ExtractionRequest { extractionPointId = extractionPointId };
         SendStruct(PacketType.EXTRACTION_REQUEST, req);
     }
 
-    /// <summary>·çÆÃ ¿äÃ» ¼Û½Å. count 0 ÀÌÇÏ = Àü·® ¿äÃ».</summary>
+    /// <summary>ë£¨íŒ… ìš”ì²­ ì†¡ì‹ . count 0 ì´í•˜ = ì „ëŸ‰ ìš”ì²­.</summary>
     public void SendItemPickup(int lootId, int itemHash, int count)
     {
         var req = new ItemPickupRequest { lootId = lootId, itemHash = itemHash, count = count };
         SendStruct(PacketType.ITEM_PICKUP_REQUEST, req);
     }
 
-    /// <summary>[Ä¡Æ®] Å»Ãâ ¹æ ÀÌµ¿ ¿äÃ». º»¹® ¾øÀ½. ¹èÆ÷ ½Ã Á¦°Å.</summary>
+    /// <summary>[ì¹˜íŠ¸] íƒˆì¶œ ë°© ì´ë™ ìš”ì²­. ë³¸ë¬¸ ì—†ìŒ. ë°°í¬ ì‹œ ì œê±°.</summary>
     public void SendDebugTeleportExit()
     {
         SendBytes(PacketIO.MakeEmptyPacket(PacketType.DEBUG_TELEPORT_EXIT));
+    }
+
+    /// <summary>ì„¸ì…˜ ì±„íŒ… ì „ì†¡. ëŒ€ìƒ ë²”ìœ„ëŠ” ì„œë²„ê°€ ê²°ì •í•œë‹¤.</summary>
+    public void SendChat(ChatChannel channel, string text)
+    {
+        SendStruct(PacketType.CHAT_SEND, ChatSendRequest.Make(channel, text));
     }
 
     private void SendStruct<T>(PacketType type, T body) where T : struct
@@ -157,7 +163,7 @@ public class SessionClient
         try { stream.Write(data, 0, data.Length); }
         catch (Exception e)
         {
-            Debug.LogError($"[Session] ¼Û½Å ¿À·ù: {e.Message}");
+            Debug.LogError($"[Session] ì†¡ì‹  ì˜¤ë¥˜: {e.Message}");
             Disconnect();
         }
     }

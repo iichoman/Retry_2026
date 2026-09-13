@@ -26,7 +26,8 @@ public:
         int hostClientId,
         int mapSeed,
         const std::vector<int>& playerIds,
-        const std::vector<int>& playerTeams);
+        const std::vector<int>& playerTeams,
+        const std::vector<std::string>& playerNames);
 
 private:
     std::string ip;

@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class InventoryInputController : MonoBehaviour
 {
@@ -19,7 +19,7 @@ public class InventoryInputController : MonoBehaviour
 
         if (inventoryUI == null)
         {
-            inventoryUI = FindFirstObjectByType<InventoryUI>();
+            inventoryUI = FindFirstObjectByType<InventoryUI>(FindObjectsInactive.Include);
         }
     }
 

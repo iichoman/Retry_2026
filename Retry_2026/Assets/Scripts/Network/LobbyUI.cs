@@ -46,6 +46,11 @@ public class LobbyUI : MonoBehaviour
     static readonly Color ColBtn = new Color32(0x2B, 0x30, 0x2A, 0xFF);
     static readonly Color ColBtnTan = new Color32(0x46, 0x3C, 0x24, 0xFF);
     static readonly Color ColBtnDanger = new Color32(0x4E, 0x2C, 0x28, 0xFF);
+    // 어두운 갈색 버튼은 배경과 붙어 검게 보였다. 주요 액션은 밝은 색으로 분리한다.
+    static readonly Color ColBtnStart = new Color32(0xD8, 0xA2, 0x3C, 0xFF);   // 파티 시작(금색)
+    static readonly Color ColBtnWait = new Color32(0x3E, 0x82, 0xD0, 0xFF);   // 준비(파란색)
+    static readonly Color ColBtnDone = new Color32(0x4F, 0xB8, 0x63, 0xFF);   // 준비 완료(초록)
+    static readonly Color ColOnBright = new Color32(0x14, 0x14, 0x10, 0xFF);   // 밝은 버튼 위 글자
 
     private Font font;
     private Canvas canvas;
@@ -53,10 +58,26 @@ public class LobbyUI : MonoBehaviour
 
     private GameObject connectingPanel, mainPanel, createPanel, findPanel, waitingPanel, guidePanel, titlePanel;
     private InputField titleNicknameInput;
+    private Text  nickLabel;
+    private float nickWarnUntil;
+    private string lastValidNick = "";
+
+    private const string NickLabelNormal = "닉네임";
+    private const string NickLabelWarn   = "한글 6글자, 영어 12글자 제한입니다.";
+    // 표시 폭 한도. 한글 1자를 2폭으로 센다 → 한글 6자 = 영문 12자.
+    private const int NickWidthLimit = 12;
     private GameObject listContent, gridContainer;
     private Text statusText, statusBarText, nameLabel;
     private Text waitTitle, profileLabel;
-    private Button startBtn;
+    // 팀 슬롯/준비 표시 색
+    private static readonly Color ColSlotEmpty  = new Color(1f, 1f, 1f, 0.05f);
+    private static readonly Color ColSlotFilled = new Color(1f, 1f, 1f, 0.12f);
+    private static readonly Color ColSlotMine   = new Color(0.85f, 0.70f, 0.35f, 0.22f);
+    private static readonly Color ColReady      = new Color(0.55f, 1.00f, 0.60f);
+
+    private Button startBtn;      // 방장: 파티 시작 / 파티원: 준비
+    private Text   startBtnLabel;
+    private Button leaveBtn;
     private InputField partyNameInput;
     private float statusUntil, nextPollTime;
 
@@ -126,11 +147,14 @@ public class LobbyUI : MonoBehaviour
     {
         if (bootstrap == null) { bootstrap = FindFirstObjectByType<NetworkBootstrap>(); return; }
         TrySubscribe();
+        UpdateNickWarning();
 
         var id = bootstrap.Identity;
         if (id != null && id.IsConnectedToSession)
         {
             if (canvas != null && canvas.gameObject.activeSelf) canvas.gameObject.SetActive(false);
+            // 오버레이는 서버의 SESSION_START_GAME(전원 입장)까지 유지한다.
+            // NetworkBootstrap이 그 신호를 받아 Hide()를 호출한다.
             return;
         }
 
@@ -229,8 +253,16 @@ public class LobbyUI : MonoBehaviour
                     if (screen == Screen.Waiting) GoTo(Screen.Main);
                     break;
                 }
+            case (int)PacketType.GAME_START_NOTICE:
+                {
+                    // 방장이 시작을 눌러 서버가 던전 생성을 시작했다. 파티원 전원에게 표시.
+                    if (myRoomId != 0) LoadingOverlay.Show("던전 생성 중..");
+                    break;
+                }
             case (int)PacketType.SESSION_ASSIGN:
                 {
+                    // 공지를 놓쳤어도 여기서 확실히 띄운다. (클라 던전 생성이 제일 오래 걸림)
+                    LoadingOverlay.Show("던전 생성 중..");
                     if (canvas != null) canvas.gameObject.SetActive(false);
                     break;
                 }
@@ -262,6 +294,58 @@ public class LobbyUI : MonoBehaviour
         }
     }
 
+    // ── 닉네임 길이 검사 ────────────────────────────────────────
+    //  한글은 팀 슬롯에서 영문의 두 배 폭을 차지한다. 그래서 글자 수가 아니라
+    //  '표시 폭'으로 제한한다. 한도를 넘으면 입력을 되돌리고 라벨로 알려준다.
+    private static int DisplayWidth(string s)
+    {
+        int w = 0;
+        for (int i = 0; i < s.Length; i++) w += IsWide(s[i]) ? 2 : 1;
+        return w;
+    }
+
+    private static bool IsWide(char c)
+    {
+        // 한글(음절/자모) + CJK + 전각 구간
+        return (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x1100 && c <= 0x11FF)
+            || (c >= 0x3130 && c <= 0x318F) || (c >= 0x4E00 && c <= 0x9FFF)
+            || (c >= 0x3000 && c <= 0x303F) || (c >= 0xFF00 && c <= 0xFF60);
+    }
+
+    private void OnNicknameChanged(string value)
+    {
+        if (DisplayWidth(value) <= NickWidthLimit)
+        {
+            lastValidNick = value;
+            return;
+        }
+
+        // 한도 초과: 마지막 유효값으로 되돌리고 라벨을 빨갛게 잠깐 바꾼다.
+        titleNicknameInput.text = lastValidNick;
+        titleNicknameInput.caretPosition = lastValidNick.Length;
+        ShowNickWarning();
+    }
+
+    private void ShowNickWarning()
+    {
+        if (nickLabel == null) return;
+        nickLabel.text = NickLabelWarn;
+        nickLabel.color = ColBtnDanger;
+        nickLabel.fontSize = 14;
+        nickWarnUntil = Time.unscaledTime + 1.8f;
+    }
+
+    private void UpdateNickWarning()
+    {
+        if (nickLabel == null || nickWarnUntil <= 0f) return;
+        if (Time.unscaledTime < nickWarnUntil) return;
+
+        nickWarnUntil = 0f;
+        nickLabel.text = NickLabelNormal;
+        nickLabel.color = ColTextDim;
+        nickLabel.fontSize = 16;
+    }
+
     // ── 버튼 동작 ──
     private void OnClickFind() { GoTo(Screen.Find); }
     private void OnClickOpenCreate()
@@ -279,7 +363,32 @@ public class LobbyUI : MonoBehaviour
     }
     private void OnClickJoin(int roomId) { bootstrap.Lobby?.SendRoomJoin(roomId); }
     private void OnClickSelectTeam(int team) { bootstrap.Lobby?.SendSelectTeam(team); }
-    private void OnClickStartRaid() { bootstrap.Lobby?.SendGameStart(); Toast("파티 시작 요청..."); }
+    // 방장이면 시작 요청, 파티원이면 준비 토글.
+    // 준비가 덜 됐을 때의 [시스템] 안내는 서버가 방장에게 직접 보낸다.
+    private void OnClickStartOrReady()
+    {
+        if (amHost)
+        {
+            bootstrap.Lobby?.SendGameStart();
+            // 전원 준비된 경우에만 로딩 화면을 띄운다.
+            // (미준비 시엔 서버가 [시스템] 거절 메시지만 보내므로 오버레이가 남으면 안 된다)
+            if (AllMembersReadyLocal()) LoadingOverlay.Show("던전 생성 중..");
+        }
+        else { bootstrap.Lobby?.SendReadyToggle(); }
+    }
+
+    // 방장을 제외한 전원이 준비됐는지. 서버 판정과 같은 규칙.
+    private bool AllMembersReadyLocal()
+    {
+        int host = -1;
+        for (int i = 0; i < rosterCount; i++) if (roster[i].isHost != 0) { host = roster[i].clientId; break; }
+        for (int i = 0; i < rosterCount; i++)
+        {
+            if (roster[i].clientId == host) continue;
+            if (roster[i].isReady == 0) return false;
+        }
+        return true;
+    }
     private void OnClickLeave()
     {
         bootstrap.Lobby?.SendRoomLeave();
@@ -349,6 +458,16 @@ public class LobbyUI : MonoBehaviour
         return LobbyConst.TEAM_UNASSIGNED;
     }
 
+    // 내 준비 상태. 방장은 항상 준비된 것으로 본다.
+    private bool AmIReady()
+    {
+        if (amHost) return true;
+        int me = bootstrap.Identity.LocalClientId;
+        for (int i = 0; i < rosterCount; i++)
+            if (roster[i].clientId == me) return roster[i].isReady != 0;
+        return false;
+    }
+
     private void RefreshWaiting()
     {
         if (waitTitle == null) return;
@@ -360,7 +479,17 @@ public class LobbyUI : MonoBehaviour
         myTeam = GetMyTeam();
         string teamStr = (myTeam < 0) ? "팀 미선택" : $"팀 {myTeam + 1}";
         profileLabel.text = $"{bootstrap.Identity.PlayerName} (나)    ·    {teamStr}    ·    파티 {rosterCount}/{memberMax}명";
-        startBtn.gameObject.SetActive(amHost);
+        // 버튼은 항상 두 개 보이고, 오른쪽 라벨만 역할에 따라 바뀐다.
+        bool iAmReady = AmIReady();
+        if (startBtnLabel != null)
+        {
+            startBtnLabel.text = amHost ? "파티 시작" : (iAmReady ? "준비 완료" : "준비");
+        }
+        // Button은 ColorBlock.normalColor를 매 프레임 targetGraphic에 덮어쓴다.
+        // 그래서 Image.color만 바꾸면 색이 안 변한다. ColorBlock을 직접 갱신해야 한다.
+        Color startCol = amHost ? ColBtnStart : (iAmReady ? ColBtnDone : ColBtnWait);
+        SetButtonColor(startBtn, startCol);
+        if (startBtnLabel != null) startBtnLabel.color = ColOnBright;
 
         if (gridContainer == null) return;
         var grid = gridContainer.GetComponent<GridLayoutGroup>();
@@ -393,34 +522,63 @@ public class LobbyUI : MonoBehaviour
         AddText(hd, $"팀 {teamId + 1}   {cnt}/{LobbyConst.TEAM_CAPACITY}", 15,
                 mine ? ColTan : ColText, TextAnchor.MiddleCenter).fontStyle = FontStyle.Bold;
 
-        // 멤버 이름 (최대 3)
+        // 닉네임이 들어갈 직사각형 슬롯 3개. 비어 있어도 칸은 그대로 그린다.
         int shown = 0;
-        for (int i = 0; i < rosterCount && shown < LobbyConst.TEAM_CAPACITY; i++)
+        for (int s = 0; s < LobbyConst.TEAM_CAPACITY; s++)
         {
-            if (roster[i].teamId != teamId) continue;
-            var row = New($"M{shown}", cell.transform);
-            float yTop = 0.78f - shown * 0.165f;
-            Frac(row, 0.06f, yTop - 0.15f, 0.94f, yTop);
-            bool me = roster[i].clientId == bootstrap.Identity.LocalClientId;
-            string nm = NameCodec.Decode(roster[i].playerName);
-            if (string.IsNullOrEmpty(nm)) nm = $"#{roster[i].clientId}";
-            if (roster[i].isHost != 0) nm = "★ " + nm;
+            float yTop = 0.80f - s * 0.175f;
+            var slot = New($"Slot{s}", cell.transform);
+            Frac(slot, 0.06f, yTop - 0.155f, 0.94f, yTop);
+
+            // 이 슬롯에 들어갈 멤버 찾기
+            int found = -1;
+            int seen = 0;
+            for (int i = 0; i < rosterCount; i++)
+            {
+                if (roster[i].teamId != teamId) continue;
+                if (seen == s) { found = i; break; }
+                seen++;
+            }
+
+            if (found < 0)
+            {
+                AddImage(slot, ColSlotEmpty);
+                var et = New("T", slot.transform);
+                Frac(et, 0f, 0f, 1f, 1f);
+                AddText(et, "비어 있음", 12, ColTextDim, TextAnchor.MiddleCenter);
+                continue;
+            }
+
+            bool me = roster[found].clientId == bootstrap.Identity.LocalClientId;
+            bool host = roster[found].isHost != 0;
+            bool ready = roster[found].isReady != 0;
+
+            AddImage(slot, me ? ColSlotMine : ColSlotFilled);
+
+            string nm = NameCodec.Decode(roster[found].playerName);
+            if (string.IsNullOrEmpty(nm)) nm = $"#{roster[found].clientId}";
+            if (host) nm = "★ " + nm;
             if (me) nm += " (나)";
-            AddText(row, nm, 13, me ? ColTan : ColText, TextAnchor.MiddleCenter);
+
+            var nameGo = New("T", slot.transform);
+            Frac(nameGo, 0.05f, 0f, 0.80f, 1f);
+            var nameTxt = AddText(nameGo, nm, 12, me ? ColTan : ColText, TextAnchor.MiddleLeft);
+            // 한글 6자(=전각 6자)는 Wrap이면 두 줄로 접힌다. 폭이 좁아도 한 줄 유지.
+            nameTxt.horizontalOverflow = HorizontalWrapMode.Overflow;
+            nameTxt.verticalOverflow = VerticalWrapMode.Truncate;
+
+            // 준비 표시. 방장은 준비 개념이 없어 표시하지 않는다.
+            var markGo = New("R", slot.transform);
+            Frac(markGo, 0.80f, 0f, 0.97f, 1f);
+            AddText(markGo, host ? "" : (ready ? "●" : "○"), 13,
+                    ready ? ColReady : ColTextDim, TextAnchor.MiddleCenter);
             shown++;
-        }
-        for (int s = shown; s < LobbyConst.TEAM_CAPACITY; s++)
-        {
-            var row = New($"E{s}", cell.transform);
-            float yTop = 0.78f - s * 0.165f;
-            Frac(row, 0.06f, yTop - 0.15f, 0.94f, yTop);
-            AddText(row, "—", 13, ColTextDim, TextAnchor.MiddleCenter);
         }
 
         // 선택 버튼
         string label = mine ? "현재 팀" : (full ? "가득참" : "선택");
         var btn = MakeButton(cell.transform, label,
-            new Vector2(0.1f, 0.05f), new Vector2(0.9f, 0.26f), Vector2.zero, Vector2.zero,
+            new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.26f), Vector2.zero, Vector2.zero,
             mine ? ColBtn : ColBtnTan, 14, () => OnClickSelectTeam(teamId));
         btn.interactable = !mine && !full;
     }
@@ -474,12 +632,16 @@ public class LobbyUI : MonoBehaviour
         // 닉네임 라벨 + 입력칸
         var lbl = New("Lbl", titlePanel.transform);
         SetRect(lbl, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200, 4), new Vector2(200, 34));
-        AddText(lbl, "닉네임", 16, ColTextDim, TextAnchor.MiddleCenter);
+        nickLabel = AddText(lbl, NickLabelNormal, 16, ColTextDim, TextAnchor.MiddleCenter);
 
         titleNicknameInput = MakeInputField(titlePanel.transform,
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200, -48), new Vector2(200, -4),
             "닉네임 입력", "", 22);
-        titleNicknameInput.characterLimit = 12;
+
+        // 글자 수 제한은 '표시 폭' 기준이다. 팀 슬롯이 한 줄을 유지해야 하므로
+        // 한글(전각) 6자 = 영문(반각) 12자를 같은 한도로 본다.
+        titleNicknameInput.characterLimit = 0;                 // 직접 검사하므로 해제
+        titleNicknameInput.onValueChanged.AddListener(OnNicknameChanged);
 
         MakeButton(titlePanel.transform, "시작",
             new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200, -112), new Vector2(200, -60),
@@ -540,7 +702,7 @@ public class LobbyUI : MonoBehaviour
         // 중앙 안내(캐릭터 자리는 비움)
         var hint = New("CenterHint", mainPanel.transform);
         SetRect(hint, new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 96), new Vector2(0, 132));
-        AddText(hint, "파티 찾기 또는 파티 만들기로 파티에 참가하세요", 16, ColTextDim, TextAnchor.MiddleCenter);
+        // (안내 문구 삭제: 색이 너무 어두워 잘 보이지 않았음)
     }
 
     private void BuildCreate()
@@ -662,7 +824,7 @@ public class LobbyUI : MonoBehaviour
         profileLabel = AddText(profTxt, "", 17, ColText, TextAnchor.MiddleLeft);
 
         gridContainer = New("Grid", box.transform);
-        SetRect(gridContainer, new Vector2(0, 0), new Vector2(1, 1), new Vector2(20, 96), new Vector2(-20, -110));
+        SetRect(gridContainer, new Vector2(0, 0), new Vector2(1, 1), new Vector2(20, 280), new Vector2(-20, -110));
         var grid = gridContainer.AddComponent<GridLayoutGroup>();
         grid.padding = new RectOffset(8, 8, 8, 8);
         grid.spacing = new Vector2(10, 10);
@@ -673,12 +835,69 @@ public class LobbyUI : MonoBehaviour
         grid.childAlignment = TextAnchor.UpperLeft;
         grid.cellSize = new Vector2(170, 150);
 
+        BuildPartyChat(box.transform);
+
+        // 좌: 파티 나가기 / 우: 파티 시작(방장) 또는 준비(파티원). 비슷한 크기의 정사각형.
+        leaveBtn = MakeButton(box.transform, "파티 나가기",
+            new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-134, 12), new Vector2(-14, 112),
+            ColBtnDanger, 18, OnClickLeave);
+
         startBtn = MakeButton(box.transform, "파티 시작",
-            new Vector2(0, 0), new Vector2(1, 0), new Vector2(28, 48), new Vector2(-28, 86),
-            ColBtnTan, 22, OnClickStartRaid);
-        MakeButton(box.transform, "파티 나가기",
-            new Vector2(0, 0), new Vector2(1, 0), new Vector2(28, 10), new Vector2(-28, 44),
-            ColBtnDanger, 15, OnClickLeave);
+            new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(14, 12), new Vector2(134, 112),
+            ColBtnTan, 18, OnClickStartOrReady);
+        startBtnLabel = startBtn.GetComponentInChildren<Text>();
+    }
+
+    // 파티 대기실 전용 채팅창. 위젯만 만들고 동작은 ChatUI가 맡는다.
+    private void BuildPartyChat(Transform parent)
+    {
+        var panel = New("PartyChat", parent);
+        // 높이 148 - (아래 입력칸 38 + 위 여백 8) = 뷰포트 102px ≈ 6줄
+        SetRect(panel, new Vector2(0, 0), new Vector2(1, 0), new Vector2(28, 124), new Vector2(-28, 272));
+        AddImage(panel, ColPanel2);
+
+        // 스크롤 영역. 줄이 늘어나도 잘리지 않고 아래로 밀린다.
+        var viewport = New("Viewport", panel.transform);
+        SetRect(viewport, new Vector2(0, 0), new Vector2(1, 1), new Vector2(10, 38), new Vector2(-10, -8));
+        AddImage(viewport, new Color(0, 0, 0, 0.001f));       // Mask용 최소 그래픽
+        viewport.AddComponent<RectMask2D>();
+
+        var content = New("Content", viewport.transform);
+        var crt = RT(content);
+        crt.anchorMin = new Vector2(0, 0);
+        crt.anchorMax = new Vector2(1, 0);
+        crt.pivot = new Vector2(0.5f, 0f);
+        crt.offsetMin = new Vector2(0, 0);
+        crt.offsetMax = new Vector2(0, 0);
+
+        var log = AddText(content, "", 14, ColText, TextAnchor.LowerLeft);
+        log.supportRichText = true;
+        var fit = content.AddComponent<ContentSizeFitter>();
+        fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        var scroll = panel.AddComponent<ScrollRect>();
+        scroll.content = crt;
+        scroll.viewport = RT(viewport);
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+        scroll.scrollSensitivity = 18f;
+
+        var fieldGo = New("Field", panel.transform);
+        SetRect(fieldGo, new Vector2(0, 0), new Vector2(1, 0), new Vector2(10, 6), new Vector2(-10, 34));
+        AddImage(fieldGo, new Color(1f, 1f, 1f, 0.06f));
+
+        var fieldTxtGo = New("Txt", fieldGo.transform);
+        SetRect(fieldTxtGo, Vector2.zero, Vector2.one, new Vector2(8, 0), new Vector2(-8, 0));
+        var fieldTxt = AddText(fieldTxtGo, "", 14, ColText, TextAnchor.MiddleLeft);
+        fieldTxt.supportRichText = false;
+
+        var field = fieldGo.AddComponent<InputField>();
+        field.textComponent = fieldTxt;
+        field.lineType = InputField.LineType.SingleLine;
+        field.characterLimit = 40;
+
+        bootstrap.Chat?.BindPartyPanel(panel, log, field);
     }
 
     // ========================================================================
@@ -870,6 +1089,21 @@ public class LobbyUI : MonoBehaviour
         var t = AddText(txtGo, label, fontSize, ColText, TextAnchor.MiddleCenter);
         t.fontStyle = FontStyle.Bold;
         return btn;
+    }
+
+    // 버튼 색을 런타임에 바꾼다. ColorBlock 전체를 갱신해야 실제로 적용된다.
+    private static void SetButtonColor(Button btn, Color c)
+    {
+        if (btn == null) return;
+        var cb = btn.colors;
+        if (cb.normalColor == c) return;
+        cb.normalColor = c;
+        cb.highlightedColor = Lighten(c, 0.16f);
+        cb.pressedColor = Lighten(c, -0.12f);
+        cb.selectedColor = c;
+        cb.disabledColor = new Color(c.r, c.g, c.b, 0.35f);
+        btn.colors = cb;
+        if (btn.targetGraphic != null) btn.targetGraphic.canvasRenderer.SetColor(c);
     }
 
     private InputField MakeInputField(Transform parent,

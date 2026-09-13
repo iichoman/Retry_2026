@@ -69,8 +69,22 @@ public:
     // 메인 진입점. 시드를 받아 던전 데이터 생성.
     void Generate(int seed);
 
+    // 클라 바닥 메시의 윗면은 타일 y + 1 에 생성된다
+    // (DungeonGenerator_ChunkMesh가 basePos + (0,1,0) 로 바닥 quad를 만든다).
+    // 서버가 y=0을 쓰면 캐릭터·몬스터가 바닥 아래에서 시작해 추락한다.
+    static constexpr float FLOOR_TOP_Y = 1.0f;
+    // 캐릭터를 놓을 때 쓰는 여유 높이. 시작 방(1.5f)과 같은 기준.
+    // 밑바닥에 거의 닿는 높이. CharacterController(center y=1, height 2)의
+    // 캡슐 밑면은 transform.y와 같으므로 바닥면+ε가 정답이다.
+    static constexpr float STAND_Y = FLOOR_TOP_Y + 0.05f;
+
     // 좌표 변환 (클라와 동일 결과여야 함).
     Vec3    TileToWorld(const IntVec3& tile) const;
+
+    // 타일 중심의 '바닥 윗면' 좌표. 몬스터 배치에 사용.
+    Vec3    TileToFloorTop(const IntVec3& tile) const;
+    // 타일 중심의 '캐릭터 스폰' 좌표. 치트 이동 등에 사용.
+    Vec3    TileToStandPosition(const IntVec3& tile) const;
     Vec3    TileToWorldCenter(const IntVec3& tile) const;
     IntVec3 WorldToTile(const Vec3& worldPos) const;
 

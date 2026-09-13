@@ -1,17 +1,17 @@
-using System.Collections.Generic;
+ï»¿using System.Collections.Generic;
 using System.Reflection;
 using UnityEngine;
 
 // ============================================================================
 //  RemotePlayerRegistry
 //
-//  ´Ù¸¥ ÇÃ·¹ÀÌ¾îµé (º»ÀÎ Á¦¿Ü)À» ¼­¹ö¿¡¼­ ¹ŞÀº µ¥ÀÌÅÍ·Î Ç¥½Ã.
-//   - PLAYER_ENTER_VIEW ¡æ RemotePlayerPrefab instantiate
-//   - PLAYER_MOVE ¡æ À§Ä¡/È¸Àü/¾Ö´Ï °»½Å (Lerp º¸°£)
-//   - PLAYER_LEAVE_VIEW ¡æ destroy
+//  ë‹¤ë¥¸ í”Œë ˆì´ì–´ë“¤ (ë³¸ì¸ ì œì™¸)ì„ ì„œë²„ì—ì„œ ë°›ì€ ë°ì´í„°ë¡œ í‘œì‹œ.
+//   - PLAYER_ENTER_VIEW â†’ RemotePlayerPrefab instantiate
+//   - PLAYER_MOVE â†’ ìœ„ì¹˜/íšŒì „/ì• ë‹ˆ ê°±ì‹  (Lerp ë³´ê°„)
+//   - PLAYER_LEAVE_VIEW â†’ destroy
 //
-//  Áß¿ä: RemotePlayerPrefab¿£ Player_Movement, Defalult_Input µî ÀÚÃ¼ µ¿ÀÛ
-//        ÄÄÆ÷³ÍÆ®°¡ ÀÖÀ¸¸é ºñÈ°¼ºÈ­. ½Ã°¢ ÄÄÆ÷³ÍÆ®(Animator, Renderer)¸¸ »ì¸².
+//  ì¤‘ìš”: RemotePlayerPrefabì—” Player_Movement, Defalult_Input ë“± ìì²´ ë™ì‘
+//        ì»´í¬ë„ŒíŠ¸ê°€ ìˆìœ¼ë©´ ë¹„í™œì„±í™”. ì‹œê° ì»´í¬ë„ŒíŠ¸(Animator, Renderer)ë§Œ ì‚´ë¦¼.
 // ============================================================================
 public class RemotePlayerRegistry : MonoBehaviour
 {
@@ -44,7 +44,7 @@ public class RemotePlayerRegistry : MonoBehaviour
             float newYaw = Mathf.LerpAngle(curYaw, e.targetYaw, lerpRate);
             e.go.transform.eulerAngles = new Vector3(0f, newYaw, 0f);
 
-            // ¾Ö´Ï¿ë speed ÆÄ¶ó¹ÌÅÍ (Player_AnimationÀÌ "Mspeed" °°Àº °Å ÀÖ´Ù¸é)
+            // ì• ë‹ˆìš© speed íŒŒë¼ë¯¸í„° (Player_Animationì´ "Mspeed" ê°™ì€ ê±° ìˆë‹¤ë©´)
             if (e.animator != null)
             {
                 ApplyAnimSpeed(e.animator, e.speed);
@@ -63,7 +63,7 @@ public class RemotePlayerRegistry : MonoBehaviour
         }
         if (RemotePlayerPrefab == null)
         {
-            Debug.LogError("[RemotePlayers] RemotePlayerPrefab ¹Ì¼³Á¤!");
+            Debug.LogError("[RemotePlayers] RemotePlayerPrefab ë¯¸ì„¤ì •!");
             return;
         }
 
@@ -113,15 +113,15 @@ public class RemotePlayerRegistry : MonoBehaviour
         e.animState = p.animState;
     }
 
-    /// <summary>´Ù¸¥ ÇÃ·¹ÀÌ¾îÀÇ °ø°İ ¾×¼Ç ¾Ë¸². Animator¿¡ attack trigger ¹ßµ¿.</summary>
+    /// <summary>ë‹¤ë¥¸ í”Œë ˆì´ì–´ì˜ ê³µê²© ì•¡ì…˜ ì•Œë¦¼. Animatorì— attack trigger ë°œë™.</summary>
     public void OnAttackBroadcast(PlayerAttackBroadcast pab)
     {
         if (!entries.TryGetValue(pab.attackerId, out var e)) return;
         if (e.animator == null) return;
 
-        // ¹«±â Á¾·ù¿Í ÄŞº¸ ÀÎµ¦½º·Î attack state °áÁ¤.
-        // Å¬¶ó Animator´Â sword_attack_1~4 ¡æ Blend Tree ±¸Á¶.
-        // ÀÏ´Ü ÄŞº¸ ÀÎµ¦½º·Î sword_attack_{combo} state·Î CrossFade ½Ãµµ.
+        // ë¬´ê¸° ì¢…ë¥˜ì™€ ì½¤ë³´ ì¸ë±ìŠ¤ë¡œ attack state ê²°ì •.
+        // í´ë¼ AnimatorëŠ” sword_attack_1~4 â†’ Blend Tree êµ¬ì¡°.
+        // ì¼ë‹¨ ì½¤ë³´ ì¸ë±ìŠ¤ë¡œ sword_attack_{combo} stateë¡œ CrossFade ì‹œë„.
         int combo = Mathf.Clamp(pab.comboIndex, 1, 4);
         string stateName = $"sword_attack_{combo}";
         int stateHash = Animator.StringToHash(stateName);
@@ -131,7 +131,7 @@ public class RemotePlayerRegistry : MonoBehaviour
         }
         else
         {
-            // Æú¹é: "Attack" trigger ½Ãµµ
+            // í´ë°±: "Attack" trigger ì‹œë„
             var ps = e.animator.parameters;
             for (int i = 0; i < ps.Length; i++)
             {
@@ -144,7 +144,7 @@ public class RemotePlayerRegistry : MonoBehaviour
         }
     }
 
-    /// <summary>´Ù¸¥ ÇÃ·¹ÀÌ¾îÀÇ HP °»½Å (COMBAT_EVENT ¹Ş¾ÒÀ» ¶§).</summary>
+    /// <summary>ë‹¤ë¥¸ í”Œë ˆì´ì–´ì˜ HP ê°±ì‹  (COMBAT_EVENT ë°›ì•˜ì„ ë•Œ).</summary>
     public void OnHpChanged(int clientId, int hp)
     {
         if (!entries.TryGetValue(clientId, out var e)) return;
@@ -154,15 +154,15 @@ public class RemotePlayerRegistry : MonoBehaviour
         }
     }
 
-    /// <summary>´Ù¸¥ ÇÃ·¹ÀÌ¾î »ç¸Á. ÃßÈÄ »ç¸Á ¾Ö´Ï/ÀÌÆåÆ®.</summary>
+    /// <summary>ë‹¤ë¥¸ í”Œë ˆì´ì–´ ì‚¬ë§. ì¶”í›„ ì‚¬ë§ ì• ë‹ˆ/ì´í™íŠ¸.</summary>
     public void OnPlayerDied(int clientId)
     {
         if (!entries.TryGetValue(clientId, out var e)) return;
-        // ÀÏ´Ü ´Ü¼ø destroy. LEAVE_VIEW°¡ µµÂøÇÏ¸é ±×ÂÊÀÌ Ã³¸®ÇØµµ OKÀÌÁö¸¸
-        // Áï½Ã ½Ã°¢Àû ÇÇµå¹éÀ» À§ÇØ ¿©±â¼­µµ Ã³¸®.
+        // ì¼ë‹¨ ë‹¨ìˆœ destroy. LEAVE_VIEWê°€ ë„ì°©í•˜ë©´ ê·¸ìª½ì´ ì²˜ë¦¬í•´ë„ OKì´ì§€ë§Œ
+        // ì¦‰ì‹œ ì‹œê°ì  í”¼ë“œë°±ì„ ìœ„í•´ ì—¬ê¸°ì„œë„ ì²˜ë¦¬.
         if (e.go != null)
         {
-            // »ç¸Á ¾Ö´Ï°¡ ÀÖÀ¸¸é ¹ßµ¿, Àá½Ã ÈÄ destroy
+            // ì‚¬ë§ ì• ë‹ˆê°€ ìˆìœ¼ë©´ ë°œë™, ì ì‹œ í›„ destroy
             if (e.animator != null)
             {
                 var ps = e.animator.parameters;
@@ -175,13 +175,13 @@ public class RemotePlayerRegistry : MonoBehaviour
                     }
                 }
             }
-            // Die ¾Ö´Ï ¾øÀ¸¸é ±×³É µÒ (LEAVE_VIEW°¡ °ğ ¿Ã °Í)
+            // Die ì• ë‹ˆ ì—†ìœ¼ë©´ ê·¸ëƒ¥ ë‘  (LEAVE_VIEWê°€ ê³§ ì˜¬ ê²ƒ)
         }
     }
 
     private void DisableLocalControl(GameObject go)
     {
-        // Remote ÇÃ·¹ÀÌ¾î´Â ÀÚ±â°¡ ÀÔ·Â/ÀÌµ¿ Ã³¸® ¾È ÇÔ
+        // Remote í”Œë ˆì´ì–´ëŠ” ìê¸°ê°€ ì…ë ¥/ì´ë™ ì²˜ë¦¬ ì•ˆ í•¨
         DisableComponentByName(go, "Player_Movement");
         DisableComponentByName(go, "Defalult_Input");
         DisableComponentByName(go, "Player_Attack");
@@ -191,11 +191,11 @@ public class RemotePlayerRegistry : MonoBehaviour
         DisableComponentByName(go, "Player_Camera_Controller");
         DisableComponentByName(go, "Player_LockOnSystem");
 
-        // CharacterController´Â disable (¼­¹ö°¡ À§Ä¡ º¸³»ÁÜ)
+        // CharacterControllerëŠ” disable (ì„œë²„ê°€ ìœ„ì¹˜ ë³´ë‚´ì¤Œ)
         var cc = go.GetComponent<CharacterController>();
         if (cc != null) cc.enabled = false;
 
-        // PlayerInput (Unity Input System) ²ô±â
+        // PlayerInput (Unity Input System) ë„ê¸°
         var pi = go.GetComponent("PlayerInput") as MonoBehaviour;
         if (pi != null) pi.enabled = false;
     }
@@ -208,8 +208,8 @@ public class RemotePlayerRegistry : MonoBehaviour
 
     private static void ApplyAnimSpeed(Animator anim, float speed)
     {
-        // AnimatorÀÇ ÀÌµ¿ ¼Óµµ ÆÄ¶ó¹ÌÅÍ¸¦ ÀÚµ¿ Å½»ö.
-        // Å¬¶ó Ãø Player_AnimCtrlÀÇ ½ÇÁ¦ ÆÄ¶ó¹ÌÅÍ ÀÌ¸§Àº "speed" (¼Ò¹®ÀÚ).
+        // Animatorì˜ ì´ë™ ì†ë„ íŒŒë¼ë¯¸í„°ë¥¼ ìë™ íƒìƒ‰.
+        // í´ë¼ ì¸¡ Player_AnimCtrlì˜ ì‹¤ì œ íŒŒë¼ë¯¸í„° ì´ë¦„ì€ "speed" (ì†Œë¬¸ì).
         var ps = anim.parameters;
         for (int i = 0; i < ps.Length; i++)
         {

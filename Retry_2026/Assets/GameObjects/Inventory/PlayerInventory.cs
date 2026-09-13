@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -239,7 +239,7 @@ public class PlayerInventory : MonoBehaviour
         return true;
     }
 
-    /// <summary>¸ğµç ½½·Ô ºñ¿ì±â. ¼­¹ö ÀÎº¥Åä¸® µ¿±âÈ­(ServerInventoryBridge) Àü¿ë.</summary>
+    /// <summary>ëª¨ë“  ìŠ¬ë¡¯ ë¹„ìš°ê¸°. ì„œë²„ ì¸ë²¤í† ë¦¬ ë™ê¸°í™”(ServerInventoryBridge) ì „ìš©.</summary>
     public void ClearAll()
     {
         for (int i = 0; i < slots.Count; i++)

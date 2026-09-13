@@ -1,4 +1,4 @@
-using System;
+ï»¿using System;
 using System.Collections.Generic;
 using System.Net.Sockets;
 using System.Runtime.InteropServices;
@@ -6,14 +6,14 @@ using UnityEngine;
 
 // ============================================================================
 //  LobbyClient
-//  ·Îºñ ¼­¹ö(127.0.0.1:9000)¿ÍÀÇ TCP Åë½Å¸¸ ´ã´ç.
+//  ë¡œë¹„ ì„œë²„(127.0.0.1:9000)ì™€ì˜ TCP í†µì‹ ë§Œ ë‹´ë‹¹.
 //
-//  »ç¿ë:
+//  ì‚¬ìš©:
 //    var c = new LobbyClient();
 //    c.OnPacketReceived = (type, body) => { ... };
 //    c.Connect("127.0.0.1", 9000);
 //    c.SendLogin("MyName");
-//    ¸Å Update¿¡¼­ c.Poll() È£Ãâ.
+//    ë§¤ Updateì—ì„œ c.Poll() í˜¸ì¶œ.
 // ============================================================================
 public class LobbyClient
 {
@@ -22,7 +22,7 @@ public class LobbyClient
     private byte[] assembly = new byte[8192];
     private int assemblyUsed = 0;
 
-    /// <summary>(packetType, body) Äİ¹é. body´Â Çì´õ Á¦¿Ü º»¹®¸¸.</summary>
+    /// <summary>(packetType, body) ì½œë°±. bodyëŠ” í—¤ë” ì œì™¸ ë³¸ë¬¸ë§Œ.</summary>
     public Action<PacketType, byte[]> OnPacketReceived;
     public Action OnConnected;
     public Action OnDisconnected;
@@ -38,13 +38,13 @@ public class LobbyClient
             tcp.Connect(ip, port);
             stream = tcp.GetStream();
             assemblyUsed = 0;
-            Debug.Log($"<color=green>[Lobby] ¿¬°á ¼º°ø {ip}:{port}</color>");
+            Debug.Log($"<color=green>[Lobby] ì—°ê²° ì„±ê³µ {ip}:{port}</color>");
             OnConnected?.Invoke();
             return true;
         }
         catch (Exception e)
         {
-            Debug.LogError($"[Lobby] ¿¬°á ½ÇÆĞ: {e.Message}");
+            Debug.LogError($"[Lobby] ì—°ê²° ì‹¤íŒ¨: {e.Message}");
             tcp = null;
             stream = null;
             return false;
@@ -59,23 +59,23 @@ public class LobbyClient
         tcp = null;
         stream = null;
         OnDisconnected?.Invoke();
-        Debug.Log("[Lobby] ¿¬°á Á¾·á");
+        Debug.Log("[Lobby] ì—°ê²° ì¢…ë£Œ");
     }
 
-    /// <summary>¸Å ÇÁ·¹ÀÓ È£Ãâ. °¡¿ëÇÑ µ¥ÀÌÅÍ¸¦ ÆĞÅ¶ ´ÜÀ§·Î Àß¶ó Äİ¹é.</summary>
+    /// <summary>ë§¤ í”„ë ˆì„ í˜¸ì¶œ. ê°€ìš©í•œ ë°ì´í„°ë¥¼ íŒ¨í‚· ë‹¨ìœ„ë¡œ ì˜ë¼ ì½œë°±.</summary>
     public void Poll()
     {
         if (stream == null) return;
 
         try
         {
-            // °¡¿ëÇÑ ¸¸Å­ ÀĞ±â
+            // ê°€ìš©í•œ ë§Œí¼ ì½ê¸°
             while (stream.DataAvailable)
             {
                 int free = assembly.Length - assemblyUsed;
                 if (free <= 0)
                 {
-                    Debug.LogError("[Lobby] ¾î¼Àºí¸® ¹öÆÛ °¡µæ. ¿¬°á Á¾·á.");
+                    Debug.LogError("[Lobby] ì–´ì…ˆë¸”ë¦¬ ë²„í¼ ê°€ë“. ì—°ê²° ì¢…ë£Œ.");
                     Disconnect();
                     return;
                 }
@@ -84,14 +84,14 @@ public class LobbyClient
                 assemblyUsed += n;
             }
 
-            // ÆĞÅ¶ ÃßÃâ
+            // íŒ¨í‚· ì¶”ì¶œ
             int headerSize = Marshal.SizeOf<PacketHeader>();
             while (assemblyUsed >= headerSize)
             {
                 var header = PacketIO.BytesToStruct<PacketHeader>(assembly, 0);
                 if (header.size < 0 || header.size > assembly.Length - headerSize)
                 {
-                    Debug.LogError($"[Lobby] ºñÁ¤»ó ÆĞÅ¶ size={header.size}");
+                    Debug.LogError($"[Lobby] ë¹„ì •ìƒ íŒ¨í‚· size={header.size}");
                     Disconnect();
                     return;
                 }
@@ -102,7 +102,7 @@ public class LobbyClient
                 Buffer.BlockCopy(assembly, headerSize, body, 0, header.size);
 
                 try { OnPacketReceived?.Invoke(header.type, body); }
-                catch (Exception ex) { Debug.LogError($"[Lobby] ÆĞÅ¶ ÇÚµé·¯ ¿¹¿Ü: {ex}"); }
+                catch (Exception ex) { Debug.LogError($"[Lobby] íŒ¨í‚· í•¸ë“¤ëŸ¬ ì˜ˆì™¸: {ex}"); }
 
                 Buffer.BlockCopy(assembly, total, assembly, 0, assemblyUsed - total);
                 assemblyUsed -= total;
@@ -110,12 +110,12 @@ public class LobbyClient
         }
         catch (Exception e)
         {
-            Debug.LogError($"[Lobby] Poll ¿À·ù: {e.Message}");
+            Debug.LogError($"[Lobby] Poll ì˜¤ë¥˜: {e.Message}");
             Disconnect();
         }
     }
 
-    // ¦¡¦¡ ¼Û½Å ÇïÆÛ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+    // â”€â”€ ì†¡ì‹  í—¬í¼ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
     public void SendLogin(string playerName)
     {
@@ -143,7 +143,7 @@ public class LobbyClient
 
     public void SendRoomLeave()
     {
-        var req = new RoomSelectTeamRequest { teamId = 0 };   // º»¹®Àº ¼­¹ö°¡ ¹«½Ã(¿¬°á·Î ½Äº°)
+        var req = new RoomSelectTeamRequest { teamId = 0 };   // ë³¸ë¬¸ì€ ì„œë²„ê°€ ë¬´ì‹œ(ì—°ê²°ë¡œ ì‹ë³„)
         SendStruct((PacketType)LobbyPacketType.ROOM_LEAVE_REQUEST, req);
     }
 
@@ -157,6 +157,18 @@ public class LobbyClient
         SendBytes(PacketIO.MakeEmptyPacket(PacketType.GAME_START_REQUEST));
     }
 
+    /// <summary>ì¤€ë¹„ ìƒíƒœ í† ê¸€. ë³¸ë¬¸ ì—†ìŒ. ë°©ì¥ì€ ì„œë²„ê°€ ë¬´ì‹œí•œë‹¤.</summary>
+    public void SendReadyToggle()
+    {
+        SendBytes(PacketIO.MakeEmptyPacket((PacketType)LobbyPacketType.ROOM_READY_REQUEST));
+    }
+
+    /// <summary>ë¡œë¹„ ì±„íŒ… ì „ì†¡. ëŒ€ìƒ ë²”ìœ„ëŠ” ì„œë²„ê°€ ê²°ì •í•œë‹¤.</summary>
+    public void SendChat(ChatChannel channel, string text)
+    {
+        SendStruct(PacketType.CHAT_SEND, ChatSendRequest.Make(channel, text));
+    }
+
     private void SendStruct<T>(PacketType type, T body) where T : struct
     {
         SendBytes(PacketIO.MakePacket(type, body));
@@ -168,7 +180,7 @@ public class LobbyClient
         try { stream.Write(data, 0, data.Length); }
         catch (Exception e)
         {
-            Debug.LogError($"[Lobby] ¼Û½Å ¿À·ù: {e.Message}");
+            Debug.LogError($"[Lobby] ì†¡ì‹  ì˜¤ë¥˜: {e.Message}");
             Disconnect();
         }
     }

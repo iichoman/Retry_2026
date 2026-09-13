@@ -1,4 +1,4 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.InputSystem;
 
 [DisallowMultipleComponent]
@@ -14,7 +14,7 @@ public class GameUIController : MonoBehaviour
 
     private bool inventoryOpen;
     private bool lootOpen;
-    private NetworkBootstrap bootstrap;   // ½ÇÁ¦ ¼¼¼Ç ÇÃ·¹ÀÌ¾î ÆÇº°¿ë
+    private NetworkBootstrap bootstrap;   // ì‹¤ì œ ì„¸ì…˜ í”Œë ˆì´ì–´ íŒë³„ìš©
 
     public static GameUIController Instance { get; private set; }
 
@@ -54,10 +54,10 @@ public class GameUIController : MonoBehaviour
         }
     }
 
-    // ÇÃ·¹ÀÌ¾î´Â ¼¼¼Ç Á¢¼Ó ½Ã ·±Å¸ÀÓ¿¡ »ı¼ºµÇ¹Ç·Î OnEnable ½ÃÁ¡¿£ ¾À¿¡ ¾øÀ» ¼ö ÀÖ´Ù.
-    // (±×¶§ playerInput=nullÀÌ¸é ±¸µ¶ÀÌ ¿µ¿µ ¾È µÊ)
-    // ¶Ç ·Îºñ µğ¿À¶ó¸¶ Ä³¸¯ÅÍÀÇ Defalult_InputÀÌ ÄÑÁø Ã¤ ³²¾Æ ÀÖ¾î ±×ÂÊÀ» Àß¸ø Àâ±âµµ ÇÑ´Ù.
-    // ¡æ ¸Å ÇÁ·¹ÀÓ ¿Ã¹Ù¸¥ ´ë»óÀÎÁö È®ÀÎÇÏ°í, ¹Ù²î¾úÀ¸¸é ±¸µ¶À» ¿Å±ä´Ù.
+    // í”Œë ˆì´ì–´ëŠ” ì„¸ì…˜ ì ‘ì† ì‹œ ëŸ°íƒ€ì„ì— ìƒì„±ë˜ë¯€ë¡œ OnEnable ì‹œì ì—” ì”¬ì— ì—†ì„ ìˆ˜ ìˆë‹¤.
+    // (ê·¸ë•Œ playerInput=nullì´ë©´ êµ¬ë…ì´ ì˜ì˜ ì•ˆ ë¨)
+    // ë˜ ë¡œë¹„ ë””ì˜¤ë¼ë§ˆ ìºë¦­í„°ì˜ Defalult_Inputì´ ì¼œì§„ ì±„ ë‚¨ì•„ ìˆì–´ ê·¸ìª½ì„ ì˜ëª» ì¡ê¸°ë„ í•œë‹¤.
+    // â†’ ë§¤ í”„ë ˆì„ ì˜¬ë°”ë¥¸ ëŒ€ìƒì¸ì§€ í™•ì¸í•˜ê³ , ë°”ë€Œì—ˆìœ¼ë©´ êµ¬ë…ì„ ì˜®ê¸´ë‹¤.
     private void Update()
     {
         ApplySessionVisibility();
@@ -74,7 +74,7 @@ public class GameUIController : MonoBehaviour
         playerInput.InventoryPressed += ToggleInventory;
     }
 
-    // ÀÎ°ÔÀÓ ¼¼¼Ç¿¡ µé¾î¿Í ÀÖ´ÂÁö. (·Îºñ/Å¸ÀÌÆ²¿¡¼­´Â false)
+    // ì¸ê²Œì„ ì„¸ì…˜ì— ë“¤ì–´ì™€ ìˆëŠ”ì§€. (ë¡œë¹„/íƒ€ì´í‹€ì—ì„œëŠ” false)
     private bool InSession()
     {
         if (bootstrap == null)
@@ -85,8 +85,8 @@ public class GameUIController : MonoBehaviour
         return id != null && id.IsConnectedToSession;
     }
 
-    // HUD(HP/½ºÅÂ¹Ì³ª)¿Í ¹Ì´Ï¸ÊÀº ¼¼¼Ç¿¡ ÀÔÀåÇßÀ» ¶§¸¸ Ç¥½Ã.
-    // ÀÎº¥Åä¸®µµ ·Îºñ¿¡¼­´Â ¿­¸®Áö ¾Ê°Ô ÇÏ°í, ·Îºñ·Î ³ª°¡¸é °­Á¦·Î ´İ´Â´Ù.
+    // HUD(HP/ìŠ¤íƒœë¯¸ë‚˜)ì™€ ë¯¸ë‹ˆë§µì€ ì„¸ì…˜ì— ì…ì¥í–ˆì„ ë•Œë§Œ í‘œì‹œ.
+    // ì¸ë²¤í† ë¦¬ë„ ë¡œë¹„ì—ì„œëŠ” ì—´ë¦¬ì§€ ì•Šê²Œ í•˜ê³ , ë¡œë¹„ë¡œ ë‚˜ê°€ë©´ ê°•ì œë¡œ ë‹«ëŠ”ë‹¤.
     private void ApplySessionVisibility()
     {
         bool inSession = InSession();
@@ -115,7 +115,7 @@ public class GameUIController : MonoBehaviour
     private GameObject hudRoot;
     private GameObject minimapRoot;
 
-    // ½ÇÁ¦ ¼¼¼Ç ·ÎÄÃ ÇÃ·¹ÀÌ¾î¸¦ ÃÖ¿ì¼±. ¾øÀ¸¸é ¾À¿¡¼­ È°¼ºÈ­µÈ °Í ¾Æ¹«°Å³ª(´Üµ¶ ½ÇÇà ´ëºñ).
+    // ì‹¤ì œ ì„¸ì…˜ ë¡œì»¬ í”Œë ˆì´ì–´ë¥¼ ìµœìš°ì„ . ì—†ìœ¼ë©´ ì”¬ì—ì„œ í™œì„±í™”ëœ ê²ƒ ì•„ë¬´ê±°ë‚˜(ë‹¨ë… ì‹¤í–‰ ëŒ€ë¹„).
     private Defalult_Input FindPlayerInput()
     {
         if (bootstrap == null)
@@ -163,13 +163,26 @@ public class GameUIController : MonoBehaviour
         }
     }
 
+    /// <summary>i ì…ë ¥ì„ ì§€ê¸ˆ ì‚´ì•„ ìˆëŠ” LocalPlayerì˜ ì…ë ¥ìœ¼ë¡œ ë‹¤ì‹œ ì—°ê²°í•œë‹¤.</summary>
+    public void RebindPlayerInput()
+    {
+        var real = FindPlayerInput();
+        if (real == null || real == playerInput) return;
+
+        if (playerInput != null) playerInput.InventoryPressed -= ToggleInventory;
+        playerInput = real;
+        playerInput.InventoryPressed += ToggleInventory;
+
+        Debug.Log("[GameUI] ì¸ë²¤í† ë¦¬ ì…ë ¥ì„ ìƒˆ LocalPlayerë¡œ ì¬ì—°ê²°", this);
+    }
+
     public void ToggleInventory()
     {
         Debug.Log($"ToggleInventory requested. inventoryOpen={inventoryOpen}, lootOpen={lootOpen}", this);
 
         if (!InSession())
         {
-            // ·Îºñ/Å¸ÀÌÆ²¿¡¼­´Â ÀÎº¥Åä¸®¸¦ ¿­Áö ¾Ê´Â´Ù.
+            // ë¡œë¹„/íƒ€ì´í‹€ì—ì„œëŠ” ì¸ë²¤í† ë¦¬ë¥¼ ì—´ì§€ ì•ŠëŠ”ë‹¤.
             return;
         }
 
@@ -261,9 +274,9 @@ public class GameUIController : MonoBehaviour
 
         if (showCursorWhenUiOpen)
         {
-            // ÀÌ ÇÁ·ÎÁ§Æ®´Â Ä¿¼­ Àá±İÀ» ¾²Áö ¾Ê´Â´Ù(¸¶¿ì½º ·è »ó½Ã, ·Îºñ/ÀÏ½ÃÁ¤Áö UI Å¬¸¯ ÇÊ¿ä).
-            // ±âÁ¸¿£ UI¸¦ ´İÀ» ¶§ gameplayCursorLockMode(Locked)¸¦ Àû¿ëÇØ¼­
-            // ·Îºñ¿¡¼­ ÀÎº¥Åä¸®¸¦ ¿­¾ú´Ù ´İÀ¸¸é ¸¶¿ì½º°¡ »ç¶óÁö´Â ¹ö±×°¡ ÀÖ¾ú´Ù.
+            // ì´ í”„ë¡œì íŠ¸ëŠ” ì»¤ì„œ ì ê¸ˆì„ ì“°ì§€ ì•ŠëŠ”ë‹¤(ë§ˆìš°ìŠ¤ ë£© ìƒì‹œ, ë¡œë¹„/ì¼ì‹œì •ì§€ UI í´ë¦­ í•„ìš”).
+            // ê¸°ì¡´ì—” UIë¥¼ ë‹«ì„ ë•Œ gameplayCursorLockMode(Locked)ë¥¼ ì ìš©í•´ì„œ
+            // ë¡œë¹„ì—ì„œ ì¸ë²¤í† ë¦¬ë¥¼ ì—´ì—ˆë‹¤ ë‹«ìœ¼ë©´ ë§ˆìš°ìŠ¤ê°€ ì‚¬ë¼ì§€ëŠ” ë²„ê·¸ê°€ ìˆì—ˆë‹¤.
             Cursor.visible = true;
             Cursor.lockState = CursorLockMode.None;
         }
@@ -271,6 +284,13 @@ public class GameUIController : MonoBehaviour
 
     private void SetInventoryVisible(bool visible)
     {
+        // ì—´ê¸° ì§ì „ì— í•œ ë²ˆ ë” í™•ì¸í•œë‹¤. ì´ˆê¸°í™” ìˆœì„œì— ë”°ë¼ Awake ì‹œì ì—”
+        // ì•„ì§ ì°¸ì¡°ê°€ ì¡íˆì§€ ì•Šì•˜ì„ ìˆ˜ ìˆë‹¤.
+        if (visible && (inventoryUI == null || equipmentUI == null))
+        {
+            ResolveReferences();
+        }
+
         if (inventoryUI != null)
         {
             inventoryUI.SetVisible(visible);
@@ -308,14 +328,16 @@ public class GameUIController : MonoBehaviour
             playerInput = FindPlayerInput();
         }
 
+        // ë‘ íŒ¨ë„ì€ Awakeì—ì„œ ìê¸° ìì‹ ì„ ë¹„í™œì„±í™”í•œë‹¤.
+        // Includeë¥¼ ë¹¼ë©´ ë¹„í™œì„± ìƒíƒœì¼ ë•Œ ëª» ì°¾ì•„ ì¥ë¹„ì°½ì´ ì˜ì˜ nullë¡œ ë‚¨ëŠ”ë‹¤.
         if (inventoryUI == null)
         {
-            inventoryUI = FindFirstObjectByType<InventoryUI>();
+            inventoryUI = FindFirstObjectByType<InventoryUI>(FindObjectsInactive.Include);
         }
 
         if (equipmentUI == null)
         {
-            equipmentUI = FindFirstObjectByType<EquipmentUI>();
+            equipmentUI = FindFirstObjectByType<EquipmentUI>(FindObjectsInactive.Include);
         }
 
         if (lootUI == null)

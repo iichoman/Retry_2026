@@ -33,6 +33,21 @@ constexpr int MAX_ROOM_NAME = 32;
 constexpr int MAX_ROOM_LIST = 50;
 constexpr int MAX_FAIL_REASON = 64;
 constexpr int MAX_IP_STRING = 16;
+constexpr int MAX_CHAT_TEXT = 128;   // 채팅 1줄 최대 바이트 (UTF-8, 널 포함)
+
+// ----------------------------------------------------------------------------
+//  채팅 채널
+//
+//  로비  : ALL(전체 접속자) / PARTY(같은 방)
+//  세션  : PARTY(같은 세션 전원) / TEAM(같은 팀)
+//  로비에 TEAM은 없고, 세션에 ALL은 없다. 서버가 문맥에 맞게 검사한다.
+// ----------------------------------------------------------------------------
+enum ChatChannel : int {
+    CHAT_ALL    = 0,   // 로비 전용
+    CHAT_PARTY  = 1,   // 로비=방, 세션=세션 전원
+    CHAT_TEAM   = 2,   // 세션 전용
+    CHAT_SYSTEM = 3,   // S→C 전용. 입퇴장/경고 등 서버가 만든 알림
+};
 
 // ----------------------------------------------------------------------------
 //  패킷 종류
@@ -53,6 +68,13 @@ enum class PacketType : int {
     ROOM_LEAVE_RESULT = 12,         // S→C: 나가기 결과 (나간 본인에게)
     ROOM_SELECT_TEAM_REQUEST = 13,  // C→S: 팀 슬롯 선택 (0..MAX_TEAMS-1, -1=미배정)
     ROOM_STATE = 14,                // S→C: 방 멤버/팀 현황 (변경 시 전원에게 push)
+
+    // ── 채팅 (로비/세션 양쪽에서 동일 패킷 사용) ───────────────
+    CHAT_SEND = 15,                 // C→S: 채팅 전송 (채널 + 본문)
+    CHAT_MESSAGE = 16,              // S→C: 채팅 수신 (발신자 정보 포함)
+    ROOM_READY_REQUEST = 17,        // C→S: 준비 상태 토글 (방장 제외)
+    GAME_START_NOTICE = 18,         // S→C: 방 전원에게 "던전 생성 시작" 공지(본문 없음)
+    SESSION_START_GAME = 19,        // S→C: 전원 입장 완료 → 동시 시작(본문 없음)
 
     // ── 인게임: 입력 / 위치 (Session_Manager, 포트 9001) ───────
     PLAYER_INPUT = 20,   // C→S: 입력 + 자칭 위치 (50ms)
@@ -174,6 +196,7 @@ struct RoomMemberEntry {
     int  clientId;
     int  teamId;           // -1=미배정, 0..MAX_TEAMS-1
     int  isHost;           // 1=방장
+    int  isReady;          // 1=준비 완료. 방장은 항상 1로 취급한다.
     char playerName[MAX_PLAYER_NAME];
 };
 
@@ -183,6 +206,25 @@ struct RoomStateData {
     int             hostClientId;
     int             memberCount;
     RoomMemberEntry members[MAX_SESSION_PLAYERS];
+};
+
+// ----------------------------------------------------------------------------
+//  채팅
+// ----------------------------------------------------------------------------
+
+// C→S: 채팅 전송. 서버가 채널 유효성과 대상 범위를 결정한다.
+struct ChatSendRequest {
+    int  channel;                  // ChatChannel
+    char text[MAX_CHAT_TEXT];
+};
+
+// S→C: 채팅 수신. 이름/팀은 서버가 채워 넣는다(클라 위조 방지).
+struct ChatMessageData {
+    int  channel;                  // ChatChannel
+    int  senderId;
+    int  senderTeam;               // -1 = 미배정/해당 없음
+    char senderName[MAX_PLAYER_NAME];
+    char text[MAX_CHAT_TEXT];
 };
 
 // 세션 할당 (방장의 GAME_START_REQUEST 응답으로 모든 멤버에게 송신)
@@ -494,6 +536,9 @@ struct IpcCreateSession {
     int playerCount;
     int playerIds[MAX_SESSION_PLAYERS];
     int playerTeams[MAX_SESSION_PLAYERS];   // 각 playerIds[i]의 로비 선택 팀 (0..MAX_TEAMS-1)
+    // 채팅 발신자 표시 + PLAYER_ENTER_VIEW의 이름 채우기용.
+    // 세션 매니저는 로그인 정보를 모르므로 로비가 넘겨준다.
+    char playerNames[MAX_SESSION_PLAYERS][MAX_PLAYER_NAME];
 };
 
 struct IpcSessionEnded {

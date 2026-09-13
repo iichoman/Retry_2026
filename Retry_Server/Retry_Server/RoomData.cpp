@@ -11,8 +11,12 @@ RoomData::RoomData(int id, const std::string& name, int hostId, int maxP)
 {
     memberIds.reserve(maxP);
     memberTeams.reserve(maxP);
+    memberReady.reserve(maxP);
     memberIds.push_back(hostId);          // 호스트는 자동 입장
     memberTeams.push_back(TEAM_UNASSIGNED);
+    // ★ 여기를 빠뜨리면 memberReady 인덱스가 1칸 밀려서
+    //   마지막에 들어온 멤버의 준비 버튼이 먹지 않는다. (누가 나가면 크기가 맞아 정상화됨)
+    memberReady.push_back(0);
 }
 
 bool RoomData::AddMember(int clientId)
@@ -21,7 +25,17 @@ bool RoomData::AddMember(int clientId)
     if (HasMember(clientId)) return false;
     memberIds.push_back(clientId);
     memberTeams.push_back(TEAM_UNASSIGNED);
+    memberReady.push_back(0);          // 새 멤버는 준비 안 됨
+    EnsureParallelSizes();
     return true;
+}
+
+// memberIds / memberTeams / memberReady 는 항상 같은 길이여야 한다.
+// 하나라도 짧으면 인덱스가 밀려 준비 상태가 엉킨다.
+void RoomData::EnsureParallelSizes()
+{
+    memberTeams.resize(memberIds.size(), TEAM_UNASSIGNED);
+    memberReady.resize(memberIds.size(), 0);
 }
 
 bool RoomData::RemoveMember(int clientId)
@@ -31,6 +45,8 @@ bool RoomData::RemoveMember(int clientId)
     size_t idx = (size_t)(it - memberIds.begin());
     memberIds.erase(memberIds.begin() + idx);
     if (idx < memberTeams.size()) memberTeams.erase(memberTeams.begin() + idx);
+    if (idx < memberReady.size()) memberReady.erase(memberReady.begin() + idx);
+    EnsureParallelSizes();
     return true;
 }
 
@@ -86,11 +102,41 @@ bool RoomData::HasMember(int clientId) const
     return std::find(memberIds.begin(), memberIds.end(), clientId) != memberIds.end();
 }
 
+// ── 준비 상태 ────────────────────────────────────────────────────────────
+void RoomData::SetReady(int clientId, bool ready)
+{
+    auto it = std::find(memberIds.begin(), memberIds.end(), clientId);
+    if (it == memberIds.end()) return;
+    size_t idx = (size_t)(it - memberIds.begin());
+    if (idx < memberReady.size()) memberReady[idx] = ready ? 1 : 0;
+}
+
+bool RoomData::IsReady(int clientId) const
+{
+    if (clientId == hostClientId) return true;     // 방장은 준비 개념 없음
+    auto it = std::find(memberIds.begin(), memberIds.end(), clientId);
+    if (it == memberIds.end()) return false;
+    size_t idx = (size_t)(it - memberIds.begin());
+    return idx < memberReady.size() && memberReady[idx] != 0;
+}
+
+bool RoomData::AllMembersReady() const
+{
+    for (size_t i = 0; i < memberIds.size(); ++i)
+    {
+        if (memberIds[i] == hostClientId) continue;      // 방장 제외
+        if (i >= memberReady.size() || memberReady[i] == 0) return false;
+    }
+    return true;
+}
+
 bool RoomData::PromoteNewHostIfNeeded()
 {
     if (memberIds.empty()) return false;
     if (HasMember(hostClientId)) return true;     // 호스트가 아직 있음
 
     hostClientId = memberIds.front();              // 첫 멤버를 호스트로
+    // 새 방장은 준비 개념에서 벗어나므로 플래그를 정리한다.
+    SetReady(hostClientId, false);
     return true;
 }

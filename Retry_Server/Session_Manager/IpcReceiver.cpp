@@ -6,6 +6,7 @@
 #include "../Common/Logger.h"
 
 #include <Ws2tcpip.h>
+#include <string>
 #include <vector>
 #include <cstring>
 
@@ -106,16 +107,24 @@ void IpcReceiver::HandleOneClient(SOCKET cs)
 
     std::vector<int> playerIds;
     std::vector<int> playerTeams;
+    std::vector<std::string> playerNames;
     playerIds.reserve(req->playerCount);
     playerTeams.reserve(req->playerCount);
+    playerNames.reserve(req->playerCount);
     for (int i = 0; i < req->playerCount && i < MAX_SESSION_PLAYERS; ++i)
     {
         playerIds.push_back(req->playerIds[i]);
         playerTeams.push_back(req->playerTeams[i]);
+
+        // 널 종료 보장 후 복사 (로비가 보낸 값을 그대로 믿지 않는다)
+        char nameBuf[MAX_PLAYER_NAME];
+        std::memcpy(nameBuf, req->playerNames[i], MAX_PLAYER_NAME);
+        nameBuf[MAX_PLAYER_NAME - 1] = '\0';
+        playerNames.push_back(nameBuf);
     }
 
     bool ok = registry->CreateSession(req->sessionId, req->hostClientId,
-        req->mapSeed, playerIds, playerTeams);
+        req->mapSeed, playerIds, playerTeams, playerNames);
     if (!ok)
     {
         Log::Warn("세션 생성 실패: id=%d", req->sessionId);

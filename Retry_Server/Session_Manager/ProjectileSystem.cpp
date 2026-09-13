@@ -117,6 +117,8 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
                 if (pkv.first == p.ownerId) continue;
                 PlayerEntity& pl = *pkv.second;
                 if (!pl.IsActiveInWorld()) continue;
+                // 피아식별: 아군은 투사체가 그대로 통과한다.
+                if (session.IsSameTeam(p.ownerId, pkv.first)) continue;
                 if (s.DistanceSqXZ(pl.position) <= HIT_RADIUS * HIT_RADIUS)
                 {
                     hit = true; hitType = 2; hitTarget = pl.clientId; hitPos = s;

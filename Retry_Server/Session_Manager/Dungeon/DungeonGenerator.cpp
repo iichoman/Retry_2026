@@ -198,7 +198,8 @@ StartRoom DungeonGenerator::CreateStartRoom(int slotIndex, IntVec3 position,
     sr.slotIndex = slotIndex;
     sr.bounds = IntBounds(position, IntVec3(roomSize, thickness, roomSize));
 
-    float spawnY = (float)sr.bounds.yMin() + 1.5f;
+    // 바닥 윗면(yMin+1)이 실제 지면이다. 1.5는 0.5 떠 있어서 낙하하므로 낮춘다.
+    float spawnY = (float)sr.bounds.yMin() + STAND_Y;
     Vec3 boundsCenter = sr.bounds.center();
     sr.teamAnchorPosition = Vec3(boundsCenter.x, spawnY, boundsCenter.z);
     sr.spawnYawDegrees = yawDegrees;
@@ -949,6 +950,18 @@ Vec3 DungeonGenerator::TileToWorldCenter(const IntVec3& tile) const
 {
     Vec3 v = TileToWorld(tile);
     return Vec3(v.x + 0.5f, v.y, v.z + 0.5f);
+}
+
+Vec3 DungeonGenerator::TileToFloorTop(const IntVec3& tile) const
+{
+    Vec3 v = TileToWorldCenter(tile);
+    return Vec3(v.x, v.y + FLOOR_TOP_Y, v.z);
+}
+
+Vec3 DungeonGenerator::TileToStandPosition(const IntVec3& tile) const
+{
+    Vec3 v = TileToWorldCenter(tile);
+    return Vec3(v.x, v.y + STAND_Y, v.z);
 }
 
 IntVec3 DungeonGenerator::WorldToTile(const Vec3& worldPos) const

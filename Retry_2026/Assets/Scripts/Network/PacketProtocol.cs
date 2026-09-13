@@ -1,18 +1,18 @@
-using System;
+ï»¿using System;
 using System.Runtime.InteropServices;
 
 // ============================================================================
-//  Retry ÆĞÅ¶ ÇÁ·ÎÅäÄİ (Å¬¶ó Ãø)
-//  ¼­¹öÀÇ Common/PacketProtocol.h¿Í 1:1 ´ëÀÀ. ÇÊµå ¼ø¼­/Å¸ÀÔ Àı´ë º¯°æ ±İÁö.
+//  Retry íŒ¨í‚· í”„ë¡œí† ì½œ (í´ë¼ ì¸¡)
+//  ì„œë²„ì˜ Common/PacketProtocol.hì™€ 1:1 ëŒ€ì‘. í•„ë“œ ìˆœì„œ/íƒ€ì… ì ˆëŒ€ ë³€ê²½ ê¸ˆì§€.
 //
-//  »ç¿ë:
+//  ì‚¬ìš©:
 //    byte[] body = PacketIO.StructToBytes(packetStruct);
 //    var packet = PacketIO.BytesToStruct<PlayerInput>(body, 0);
 // ============================================================================
 
 public enum PacketType : int
 {
-    // ·Îºñ
+    // ë¡œë¹„
     LOGIN_REQUEST = 1,
     LOGIN_RESULT = 2,
     ROOM_CREATE_REQUEST = 3,
@@ -24,32 +24,39 @@ public enum PacketType : int
     GAME_START_REQUEST = 9,
     SESSION_ASSIGN = 10,
 
-    // ÀÎ°ÔÀÓ - ÀÔ·Â / À§Ä¡
+    // ì±„íŒ… (ë¡œë¹„/ì„¸ì…˜ ê³µìš©)
+    CHAT_SEND = 15,
+    CHAT_MESSAGE = 16,
+    ROOM_READY_REQUEST = 17,
+    GAME_START_NOTICE = 18,   // Sâ†’C: ë˜ì „ ìƒì„± ì‹œì‘ ê³µì§€
+    SESSION_START_GAME = 19,  // Sâ†’C: ì „ì› ì…ì¥ ì™„ë£Œ â†’ ë™ì‹œ ì‹œì‘
+
+    // ì¸ê²Œì„ - ì…ë ¥ / ìœ„ì¹˜
     PLAYER_INPUT = 20,
     PLAYER_ENTER_VIEW = 21,
     PLAYER_LEAVE_VIEW = 22,
     PLAYER_MOVE = 23,
 
-    // ÀüÅõ
+    // ì „íˆ¬
     PLAYER_ATTACK_REQUEST = 30,
     COMBAT_EVENT = 31,
     PLAYER_DIED = 32,
     HP_CHANGED = 33,
     PLAYER_ATTACK_BROADCAST = 34,
 
-    // ¸ó½ºÅÍ
+    // ëª¬ìŠ¤í„°
     MONSTER_ENTER_VIEW = 40,
     MONSTER_LEAVE_VIEW = 41,
     MONSTER_MOVE = 42,
     MONSTER_ATTACK_EVENT = 43,
     MONSTER_DIED = 44,
 
-    // ÀüÅõ - ¿ø°Å¸® Åõ»çÃ¼ (È°/ÃÑ)
+    // ì „íˆ¬ - ì›ê±°ë¦¬ íˆ¬ì‚¬ì²´ (í™œ/ì´)
     PROJECTILE_SPAWN = 45,
     PROJECTILE_MOVE = 46,
     PROJECTILE_DESPAWN = 47,
 
-    // Å»Ãâ
+    // íƒˆì¶œ
     EXTRACTION_REQUEST = 50,
     EXTRACTION_RESULT = 51,
     SESSION_ENDED = 52,
@@ -61,7 +68,7 @@ public enum PacketType : int
     LOOT_REMOVED = 63,
     INVENTORY_SYNC = 64,
 
-    DEBUG_TELEPORT_EXIT = 90,   // [Ä¡Æ®] ¹èÆ÷ ½Ã Á¦°Å
+    DEBUG_TELEPORT_EXIT = 90,   // [ì¹˜íŠ¸] ë°°í¬ ì‹œ ì œê±°
 }
 
 public enum WeaponKind : int
@@ -95,7 +102,7 @@ public struct PacketHeader
     public int size;
 }
 
-// ¦¡¦¡ ·Îºñ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+// â”€â”€ ë¡œë¹„ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct LoginRequest
@@ -155,7 +162,7 @@ public struct SessionAssignData
     public int sessionServerPort;
 }
 
-// ¦¡¦¡ ÀÎ°ÔÀÓ: ÀÔ·Â / À§Ä¡ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+// â”€â”€ ì¸ê²Œì„: ì…ë ¥ / ìœ„ì¹˜ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct PlayerInput
@@ -164,7 +171,7 @@ public struct PlayerInput
     public float moveX, moveY;
     public int jump;
     public int sprint;
-    public long timestamp;        // C++ÀÇ long long = C#ÀÇ long (8 bytes)
+    public long timestamp;        // C++ì˜ long long = C#ì˜ long (8 bytes)
     public float posX, posY, posZ;
     public float rotY;
 }
@@ -198,24 +205,76 @@ public struct PlayerMove
     public long timestamp;
 }
 
-// ¦¡¦¡ ÀüÅõ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+// â”€â”€ ì „íˆ¬ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// ¦¡¦¡ ¾ÆÀÌÅÛ / ÀÎº¥Åä¸® (¼­¹ö ±ÇÀ§) ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
-// ÀÎº¥Åä¸® ½ÇÃ¼´Â ¼­¹ö¿¡¸¸ ÀÖ´Ù. Å¬¶ó´Â INVENTORY_SYNC·Î ¹Ş¾Æ Ç¥½Ã¸¸ ÇÑ´Ù.
+// â”€â”€ ì±„íŒ… â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ë¡œë¹„ : ALL(ì „ì²´ ì ‘ì†ì) / Party(ê°™ì€ ë°©)
+// ì„¸ì…˜ : Party(ì„¸ì…˜ ì „ì›) / Team(ê°™ì€ íŒ€)
+// ì„œë²„ê°€ ë¬¸ë§¥ì— ì•ˆ ë§ëŠ” ì±„ë„ì€ ì•Œì•„ì„œ ê°•ë“±í•œë‹¤.
+public enum ChatChannel : int
+{
+    All = 0,
+    Party = 1,
+    Team = 2,
+    System = 3,     // Sâ†’C ì „ìš©. ì„œë²„ê°€ ë§Œë“  ì•Œë¦¼
+}
+
+public static class ChatConst
+{
+    public const int MAX_CHAT_TEXT = 128;   // ì„œë²„ PacketProtocol.hì™€ ì¼ì¹˜ í•„ìˆ˜
+}
+
+// ë¬¸ìì—´ì€ ê³ ì • ê¸¸ì´ UTF-8 ë°”ì´íŠ¸ ë°°ì—´ì´ë‹¤ (NameCodec ì‚¬ìš©).
+// ByValTStrë¥¼ ì“°ë©´ ì‹œìŠ¤í…œ ì½”ë“œí˜ì´ì§€ë¡œ ë³€í™˜ë¼ í•œê¸€ì´ í™˜ê²½ì— ë”°ë¼ ê¹¨ì§„ë‹¤.
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public struct ChatSendRequest
+{
+    public int channel;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)]   // MAX_CHAT_TEXT
+    public byte[] text;
+
+    public static ChatSendRequest Make(ChatChannel ch, string body)
+    {
+        return new ChatSendRequest
+        {
+            channel = (int)ch,
+            text = NameCodec.Encode(body, ChatConst.MAX_CHAT_TEXT)
+        };
+    }
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public struct ChatMessageData
+{
+    public int channel;
+    public int senderId;
+    public int senderTeam;          // -1 = ë¯¸ë°°ì •
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]    // MAX_PLAYER_NAME
+    public byte[] senderName;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 128)]   // MAX_CHAT_TEXT
+    public byte[] text;
+
+    public string SenderName => NameCodec.Decode(senderName);
+    public string Text => NameCodec.Decode(text);
+    public ChatChannel Channel => (ChatChannel)channel;
+}
+
+// â”€â”€ ì•„ì´í…œ / ì¸ë²¤í† ë¦¬ (ì„œë²„ ê¶Œìœ„) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ì¸ë²¤í† ë¦¬ ì‹¤ì²´ëŠ” ì„œë²„ì—ë§Œ ìˆë‹¤. í´ë¼ëŠ” INVENTORY_SYNCë¡œ ë°›ì•„ í‘œì‹œë§Œ í•œë‹¤.
 public static class LootConst
 {
     public const int MAX_LOOT_ENTRIES = 8;
     public const int MAX_INVENTORY_ENTRIES = 32;
-    public const float PICKUP_RANGE = 3.0f;   // ¼­¹ö PacketProtocol.h¿Í ÀÏÄ¡ ÇÊ¼ö
+    public const float PICKUP_RANGE = 3.0f;   // ì„œë²„ PacketProtocol.hì™€ ì¼ì¹˜ í•„ìˆ˜
 }
 
 public enum PickupFailReason : int
 {
     OK = 0,
-    NoLoot = 1,      // ÄÁÅ×ÀÌ³Ê ¾øÀ½ (ÀÌ¹Ì ¼Ò¸ê)
-    TooFar = 2,      // °Å¸® ÃÊ°ú
-    NoItem = 3,      // ±× ¾ÆÀÌÅÛ/¼ö·® ¾øÀ½
-    InvFull = 4,     // ÀÎº¥Åä¸® °¡µæ Âü
+    NoLoot = 1,      // ì»¨í…Œì´ë„ˆ ì—†ìŒ (ì´ë¯¸ ì†Œë©¸)
+    TooFar = 2,      // ê±°ë¦¬ ì´ˆê³¼
+    NoItem = 3,      // ê·¸ ì•„ì´í…œ/ìˆ˜ëŸ‰ ì—†ìŒ
+    InvFull = 4,     // ì¸ë²¤í† ë¦¬ ê°€ë“ ì°¸
     Dead = 5,
 }
 
@@ -231,7 +290,7 @@ public struct ItemPickupRequest
 {
     public int lootId;
     public int itemHash;
-    public int count;      // 0 ÀÌÇÏ = Àü·® ¿äÃ»
+    public int count;      // 0 ì´í•˜ = ì „ëŸ‰ ìš”ì²­
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -270,19 +329,19 @@ public struct InventorySyncData
     public ItemStack[] entries;
 }
 
-// ¦¡¦¡ Å»Ãâ (¼­¹ö ±ÇÀ§ ÆÇÁ¤) ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
-// Å»Ãâ ¼º¸³ Á¶°Ç: Å»Ãâ ¹æ ¾È¿¡¼­ HOLD_SEC ¿¬¼Ó Ã¼·ù.
-// ¼­¹ö°¡ ÀÚÃ¼ À§Ä¡ ±â·ÏÀ¸·Î °ËÁõÇÏ¹Ç·Î Å¬¶ó È¦µå ½Ã°£Àº UI ¿ëµµ´Ù.
+// â”€â”€ íƒˆì¶œ (ì„œë²„ ê¶Œìœ„ íŒì •) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// íƒˆì¶œ ì„±ë¦½ ì¡°ê±´: íƒˆì¶œ ë°© ì•ˆì—ì„œ HOLD_SEC ì—°ì† ì²´ë¥˜.
+// ì„œë²„ê°€ ìì²´ ìœ„ì¹˜ ê¸°ë¡ìœ¼ë¡œ ê²€ì¦í•˜ë¯€ë¡œ í´ë¼ í™€ë“œ ì‹œê°„ì€ UI ìš©ë„ë‹¤.
 public static class ExtractionConst
 {
-    public const float HOLD_SEC = 7.0f;   // ¼­¹ö PacketProtocol.h¿Í ÀÏÄ¡ ÇÊ¼ö
+    public const float HOLD_SEC = 7.0f;   // ì„œë²„ PacketProtocol.hì™€ ì¼ì¹˜ í•„ìˆ˜
 }
 
 public enum ExtractionFailReason : int
 {
     OK = 0,
-    NotInZone = 1,      // Å»Ãâ ¹æ ¾ÈÀÌ ¾Æ´Ô
-    HoldTooShort = 2,   // Ã¼·ù ½Ã°£ ºÎÁ·
+    NotInZone = 1,      // íƒˆì¶œ ë°© ì•ˆì´ ì•„ë‹˜
+    HoldTooShort = 2,   // ì²´ë¥˜ ì‹œê°„ ë¶€ì¡±
     Dead = 3,
     Already = 4,
     NoExitRoom = 5,
@@ -313,7 +372,7 @@ public struct PlayerExtracted
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct SessionEnded
 {
-    public int reason;   // 0=Á¤»ó, 1=È£½ºÆ® ÀÌÅ», 2=¿À·ù, 3=Å¸ÀÓ¾Æ¿ô
+    public int reason;   // 0=ì •ìƒ, 1=í˜¸ìŠ¤íŠ¸ ì´íƒˆ, 2=ì˜¤ë¥˜, 3=íƒ€ì„ì•„ì›ƒ
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -364,7 +423,7 @@ public struct HpChanged
     public int maxHp;
 }
 
-// ¦¡¦¡ ¸ó½ºÅÍ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+// â”€â”€ ëª¬ìŠ¤í„° â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct MonsterEnterView
@@ -410,7 +469,7 @@ public struct MonsterDied
     public int killerId;
 }
 
-// ¦¡¦¡ ¿ø°Å¸® Åõ»çÃ¼ (È°/ÃÑ). ¹ÌÄí°¡ ´øÁö´Â Á÷À°¸éÃ¼. ¦¡¦¡
+// â”€â”€ ì›ê±°ë¦¬ íˆ¬ì‚¬ì²´ (í™œ/ì´). ë¯¸ì¿ ê°€ ë˜ì§€ëŠ” ì§ìœ¡ë©´ì²´. â”€â”€
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct ProjectileSpawn
 {
@@ -433,12 +492,12 @@ public struct ProjectileMove
 public struct ProjectileDespawn
 {
     public int projectileId;
-    public int hitType;        // 0=º®,1=¸ó½ºÅÍ,2=ÇÃ·¹ÀÌ¾î,3=¼ö¸í
-    public int hitTargetId;    // ¸ó½ºÅÍ=À½¼ö, ÇÃ·¹ÀÌ¾î=¾ç¼ö, º®/¼ö¸í=0
+    public int hitType;        // 0=ë²½,1=ëª¬ìŠ¤í„°,2=í”Œë ˆì´ì–´,3=ìˆ˜ëª…
+    public int hitTargetId;    // ëª¬ìŠ¤í„°=ìŒìˆ˜, í”Œë ˆì´ì–´=ì–‘ìˆ˜, ë²½/ìˆ˜ëª…=0
     public float posX, posY, posZ;
 }
 
-// ¦¡¦¡ ¸¶¼£¸µ ÇïÆÛ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+// â”€â”€ ë§ˆìƒ¬ë§ í—¬í¼ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 public static class PacketIO
 {
@@ -447,7 +506,7 @@ public static class PacketIO
         if (buf == null) throw new ArgumentNullException(nameof(buf));
         int size = Marshal.SizeOf<T>();
         if (offset + size > buf.Length)
-            throw new ArgumentException($"¹öÆÛ Å©±â ºÎÁ·: need {offset + size}, got {buf.Length}");
+            throw new ArgumentException($"ë²„í¼ í¬ê¸° ë¶€ì¡±: need {offset + size}, got {buf.Length}");
 
         GCHandle handle = GCHandle.Alloc(buf, GCHandleType.Pinned);
         try
@@ -471,7 +530,7 @@ public static class PacketIO
         return buf;
     }
 
-    // Çì´õ+º»¹®À» ÇÑ ¹ø¿¡ ÇÕÃÄ ¼Û½ÅÇÒ byte[] ¸¸µé±â
+    // í—¤ë”+ë³¸ë¬¸ì„ í•œ ë²ˆì— í•©ì³ ì†¡ì‹ í•  byte[] ë§Œë“¤ê¸°
     public static byte[] MakePacket<T>(PacketType type, T body) where T : struct
     {
         byte[] bodyBytes = StructToBytes(body);
@@ -491,7 +550,7 @@ public static class PacketIO
         return result;
     }
 
-    // º»¹® ¾ø´Â ºó ¿äÃ» ÆĞÅ¶ (ROOM_LIST_REQUEST, GAME_START_REQUEST µî)
+    // ë³¸ë¬¸ ì—†ëŠ” ë¹ˆ ìš”ì²­ íŒ¨í‚· (ROOM_LIST_REQUEST, GAME_START_REQUEST ë“±)
     public static byte[] MakeEmptyPacket(PacketType type)
     {
         return MakePacket(type, (byte[])null);

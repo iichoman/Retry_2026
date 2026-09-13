@@ -34,6 +34,7 @@ static constexpr bool DEBUG_ALLOW_TELEPORT = true;
 GameSession::GameSession(int sid, int hid, int seed,
     const std::vector<int>& allowedPlayerIds,
     const std::vector<int>& playerTeams,
+    const std::vector<std::string>& playerNames,
     LobbyReporter* rep)
     : sessionId(sid)
     , hostClientId(hid)
@@ -46,6 +47,8 @@ GameSession::GameSession(int sid, int hid, int seed,
         int id = allowedPlayerIds[i];
         allowedPlayers.insert(id);
         playerTeamMap[id] = (i < playerTeams.size()) ? playerTeams[i] : 0;
+        if (i < playerNames.size() && !playerNames[i].empty())
+            playerNameMap[id] = playerNames[i];
     }
 }
 
@@ -135,6 +138,14 @@ void GameSession::AttachClient(int clientId, SessionClientConnection* conn)
                 spawn.z + dungeon.worldOffset.z);
             pe->rotY = sr.spawnYawDegrees;
         }
+        // 이름을 넣어야 다른 클라의 PLAYER_ENTER_VIEW에 표시된다.
+        auto nIt = playerNameMap.find(clientId);
+        if (nIt != playerNameMap.end())
+        {
+            std::strncpy(pe->playerName, nIt->second.c_str(), sizeof(pe->playerName) - 1);
+            pe->playerName[sizeof(pe->playerName) - 1] = '\0';
+        }
+
         pe->conn = conn;
         players[clientId] = std::move(pe);
         Log::Info("[Session %d] 입장: clientId=%d (현재 %d명) pos=(%.1f, %.1f, %.1f)",
@@ -172,6 +183,24 @@ void GameSession::AttachClient(int clientId, SessionClientConnection* conn)
         pm.timestamp = ts;
         p->conn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
     }
+
+    // 전원이 다 붙었으면 여기서 동시에 시작한다.
+    TryStartGame();
+}
+
+// 전원 입장 대기 배리어. force=true면 타임아웃으로 강제 시작.
+void GameSession::TryStartGame(bool force)
+{
+    if (gameStarted.load()) return;
+
+    int joined = (int)players.size();
+    int expected = (int)allowedPlayers.size();
+    if (!force && joined < expected) return;
+
+    gameStarted.store(true);
+    Broadcast((int)PacketType::SESSION_START_GAME, nullptr, 0);
+    Log::Info("[Session %d] 게임 시작 (입장 %d/%d%s)",
+        sessionId, joined, expected, force ? ", 타임아웃 강제" : "");
 }
 
 void GameSession::DetachClient(int clientId)
@@ -212,6 +241,10 @@ void GameSession::HandlePacket(int clientId, int packetType,
 
     case PacketType::ITEM_PICKUP_REQUEST:
         HandleItemPickup(clientId, body, bodySize);
+        break;
+
+    case PacketType::CHAT_SEND:
+        HandleChat(clientId, body, bodySize);
         break;
 
     case PacketType::DEBUG_TELEPORT_EXIT:   // [치트] 배포 시 제거
@@ -278,6 +311,59 @@ void GameSession::HandlePlayerAttack(int clientId, const char* body, int bodySiz
 
     std::lock_guard<std::recursive_mutex> lk(mtx);
     cr.HandleAttack(*this, clientId, *req);
+}
+
+// ============================================================================
+//  내부: 채팅
+//
+//  채널
+//   CHAT_PARTY : 이 세션(같은 던전)에 있는 전원
+//   CHAT_TEAM  : 같은 팀 슬롯인 인원만
+//   CHAT_ALL   : 세션엔 없는 채널이라 PARTY로 강등한다.
+//
+//  탈출/사망한 플레이어도 결과창에서 대화를 이어갈 수 있어야 하므로
+//  IsActiveInWorld가 아니라 접속 여부만 본다.
+// ============================================================================
+
+void GameSession::HandleChat(int clientId, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(ChatSendRequest)) return;
+    const ChatSendRequest* req = reinterpret_cast<const ChatSendRequest*>(body);
+
+    char text[MAX_CHAT_TEXT];
+    std::memcpy(text, req->text, MAX_CHAT_TEXT);
+    text[MAX_CHAT_TEXT - 1] = '\0';
+    if (text[0] == '\0') return;
+
+    std::lock_guard<std::recursive_mutex> lk(mtx);
+    if (players.find(clientId) == players.end()) return;
+
+    int channel = (req->channel == CHAT_TEAM) ? CHAT_TEAM : CHAT_PARTY;
+
+    auto tIt = playerTeamMap.find(clientId);
+    int senderTeam = (tIt != playerTeamMap.end()) ? tIt->second : TEAM_UNASSIGNED;
+
+    ChatMessageData msg{};
+    msg.channel = channel;
+    msg.senderId = clientId;
+    msg.senderTeam = senderTeam;
+    auto nIt = playerNameMap.find(clientId);
+    if (nIt != playerNameMap.end())
+        std::strncpy(msg.senderName, nIt->second.c_str(), sizeof(msg.senderName) - 1);
+    std::strncpy(msg.text, text, sizeof(msg.text) - 1);
+
+    int sent = 0;
+    for (auto& kv : players)
+    {
+        if (channel == CHAT_TEAM && !IsSameTeam(clientId, kv.first)) continue;
+        PlayerEntity& p = *kv.second;
+        if (!p.conn || !p.conn->active) continue;
+        p.conn->SendPacket((int)PacketType::CHAT_MESSAGE, &msg, sizeof(msg));
+        ++sent;
+    }
+
+    Log::Info("[채팅/%s] sid=%d %s: %s (%d명)",
+        channel == CHAT_TEAM ? "팀" : "파티", sessionId, msg.senderName, msg.text, sent);
 }
 
 void GameSession::HandleItemPickup(int clientId, const char* body, int bodySize)
@@ -356,7 +442,7 @@ void GameSession::HandleDebugTeleportExit(int clientId)
     }
     if (!best) return;
 
-    Vec3 dest = dungeon.TileToWorldCenter(*best);
+    Vec3 dest = dungeon.TileToStandPosition(*best);   // 바닥 위로 올려 놓는다
 
     p->position = dest;
     p->speed = 0.f;
@@ -548,6 +634,16 @@ void GameSession::TickStep(float dt)
     // 시뮬레이션 + 시야 갱신 모두 lock 안에서.
     {
         std::lock_guard<std::recursive_mutex> lk(mtx);
+
+        // 0) 전원 입장 전에는 월드를 멈춘다. (먼저 들어온 사람만 맞고 시간이 흐르는 것 방지)
+        //    시야 갱신은 그대로 해서 서로 보이게 두고, AI/탈출/종료 판정만 보류한다.
+        if (!gameStarted.load())
+        {
+            preStartElapsed += dt;
+            if (preStartElapsed >= START_TIMEOUT_SEC) TryStartGame(true);
+            im.UpdateAll(*this);
+            return;
+        }
 
         // 1) 몬스터 AI (위치 갱신 + 공격 결정)
         worldSim.Step(dt, players, dungeon, attackEvents);

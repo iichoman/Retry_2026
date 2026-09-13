@@ -1,4 +1,4 @@
-using System.Text;
+﻿using System.Text;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -106,6 +106,12 @@ public class DungeonResultUI : MonoBehaviour
 
     private static string FormatEscapedPlayers(DungeonExitResult result)
     {
+        // 내부 ID("00001")가 아니라 닉네임을 보여준다.
+        if (result.escapedPlayerNames != null && result.escapedPlayerNames.Count > 0)
+        {
+            return $"탈출 플레이어: {string.Join(", ", result.escapedPlayerNames)}";
+        }
+
         if (result.escapedPlayerIds.Count == 0)
         {
             return $"탈출 플레이어: {result.escapedPlayerCount}";

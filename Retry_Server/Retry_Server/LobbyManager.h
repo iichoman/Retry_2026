@@ -69,6 +69,14 @@ private:
     void HandleGameStart(ClientConnection* conn);
     void HandleRoomLeave(ClientConnection* conn);
     void HandleSelectTeam(ClientConnection* conn, const char* body, int bodySize);
+    // 채팅. 채널에 따라 전체(로비 접속자) 또는 파티(같은 방)로 중계.
+    void HandleChat(ClientConnection* conn, const char* body, int bodySize);
+    // 준비 상태 토글 (방장 제외).
+    void HandleRoomReady(ClientConnection* conn);
+
+    // 서버가 만든 [시스템] 알림. 방 전원 또는 특정 1인에게.
+    void SendSystemToRoom(RoomData* room, const char* text);
+    void SendSystemTo(ClientConnection* conn, const char* text);
 
     // 방 멤버/팀 현황을 그 방 전원에게 push (입장/퇴장/팀변경/방장변경 시).
     void BroadcastRoomState(RoomData* room);

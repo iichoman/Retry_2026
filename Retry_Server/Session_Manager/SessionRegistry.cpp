@@ -21,7 +21,8 @@ SessionRegistry::~SessionRegistry()
 
 bool SessionRegistry::CreateSession(int sessionId, int hostClientId, int mapSeed,
     const std::vector<int>& playerIds,
-    const std::vector<int>& playerTeams)
+    const std::vector<int>& playerTeams,
+    const std::vector<std::string>& playerNames)
 {
     std::lock_guard<std::mutex> lk(mtx);
 
@@ -32,7 +33,7 @@ bool SessionRegistry::CreateSession(int sessionId, int hostClientId, int mapSeed
     }
 
     auto sess = std::make_unique<GameSession>(sessionId, hostClientId, mapSeed,
-        playerIds, playerTeams, reporter);
+        playerIds, playerTeams, playerNames, reporter);
     sess->Start();
     sessions[sessionId] = std::move(sess);
     return true;

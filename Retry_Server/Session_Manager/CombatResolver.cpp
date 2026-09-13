@@ -139,6 +139,10 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
             auto mIt = monsters.find(mid);
             if (mIt != monsters.end()) hpAfter = mIt->second->hp;
 
+            Log::Info("[근접] cid=%d weapon=%d combo=%d → 몬스터 %d  데미지 %d  HP %d→%d%s",
+                attackerId, req.weaponKind, req.comboIndex, mid,
+                wd.damage, hpAfter + wd.damage, hpAfter, killed ? "  [처치]" : "");
+
             CombatEvent ce{};
             ce.attackerId = attackerId;
             ce.targetId = -mid;             // 음수 = 몬스터
@@ -171,6 +175,8 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
             if (kv.first == attackerId) continue;
             const PlayerEntity& p = *kv.second;
             if (!p.IsActiveInWorld()) continue;
+            // 피아식별: 같은 팀은 때릴 수 없다.
+            if (session.IsSameTeam(attackerId, kv.first)) continue;
             if (InMeleeBox(origin, dir, wd.range, wd.width, p.position))
                 targets.push_back(p.clientId);
         }
@@ -181,8 +187,13 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
             if (pIt == session.players.end()) continue;
             PlayerEntity& victim = *pIt->second;
 
+            int before = victim.hp;
             victim.hp -= wd.damage;
             if (victim.hp < 0) victim.hp = 0;
+
+            Log::Info("[근접] cid=%d weapon=%d combo=%d → 플레이어 %d  데미지 %d  HP %d→%d%s",
+                attackerId, req.weaponKind, req.comboIndex, pid,
+                wd.damage, before, victim.hp, victim.hp <= 0 ? "  [사망]" : "");
 
             CombatEvent ce{};
             ce.attackerId = attackerId;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 using UnityEngine.UI;
 
@@ -370,23 +370,40 @@ public sealed class GameHUDOverlay : MonoBehaviour
 
         // 던전(세션) 안에서만 시간이 흐르고, 나가면 0으로 초기화된다.
         // 세션 진입 시점을 기준으로 경과 시간을 직접 잰다.
+        // 전원 입장(SESSION_START_GAME) 전에는 아직 0으로 둔다. 클라마다 로딩 시간이 달라서
+        // 입장 시점부터 세면 파티원끼리 진행 시간이 어긋난다.
         bool inSession = bootstrap != null && bootstrap.Identity != null
-                         && bootstrap.Identity.IsConnectedToSession;
+                         && bootstrap.Identity.IsConnectedToSession
+                         && bootstrap.SessionGameStarted;
 
-        if (inSession)
+        // 탈출이 확정되면 그 시점 값으로 멈춘다. (결과창 뒤에서 계속 흐르면 안 됨)
+        bool escaped = DungeonExitManager.Instance != null
+                       && DungeonExitManager.Instance.EscapeCompleted;
+
+        if (!inSession)
+        {
+            timerRunning = false;           // 던전에서 나가면 정지 + 다음 입장 때 초기화
+            frozenSeconds = 0f;
+        }
+        else if (escaped)
+        {
+            if (timerRunning)
+            {
+                frozenSeconds = Time.time - runStartTime;   // 한 번만 스냅샷
+                timerRunning = false;
+            }
+        }
+        else
         {
             if (!timerRunning)
             {
                 timerRunning = true;
                 runStartTime = Time.time;   // 입장 순간부터 재개(0부터 시작)
             }
-        }
-        else
-        {
-            timerRunning = false;           // 던전에서 나가면 정지 + 다음 입장 때 초기화
+            frozenSeconds = 0f;
         }
 
-        float seconds = timerRunning ? (Time.time - runStartTime) : 0f;
+        float seconds = timerRunning ? (Time.time - runStartTime) : frozenSeconds;
 
         TimeSpan elapsed = TimeSpan.FromSeconds(Mathf.Max(0f, seconds));
         timerText.text = elapsed.TotalHours >= 1d
@@ -396,6 +413,7 @@ public sealed class GameHUDOverlay : MonoBehaviour
 
     private bool timerRunning;
     private float runStartTime;
+    private float frozenSeconds;   // 탈출 후 고정 표시용
 
     private void HideLegacyHud()
     {

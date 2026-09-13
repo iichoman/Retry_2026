@@ -1,16 +1,16 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 // ============================================================================
 //  LocalPlayerInputSender
 //
-//  º»ÀÎ Ä³¸¯ÅÍ¿¡ ÀÚµ¿À¸·Î ºÙÀ½ (NetworkBootstrapÀÌ AddComponent).
-//  50ms¸¶´Ù PLAYER_INPUT ÆĞÅ¶À» SessionClient·Î ¼Û½Å.
+//  ë³¸ì¸ ìºë¦­í„°ì— ìë™ìœ¼ë¡œ ë¶™ìŒ (NetworkBootstrapì´ AddComponent).
+//  50msë§ˆë‹¤ PLAYER_INPUT íŒ¨í‚·ì„ SessionClientë¡œ ì†¡ì‹ .
 //
-//  Phase 1 (ÇöÀç): Å¬¶ó°¡ °áÁ¤ÇÑ º»ÀÎ À§Ä¡ (transform.position)¸¦
-//                  ¼­¹ö°¡ ±×´ë·Î ½Å·Ú. CharacterController·Î ÀÌµ¿/Ãæµ¹ Ã³¸®.
+//  Phase 1 (í˜„ì¬): í´ë¼ê°€ ê²°ì •í•œ ë³¸ì¸ ìœ„ì¹˜ (transform.position)ë¥¼
+//                  ì„œë²„ê°€ ê·¸ëŒ€ë¡œ ì‹ ë¢°. CharacterControllerë¡œ ì´ë™/ì¶©ëŒ ì²˜ë¦¬.
 //
-//  ÁÖÀÇ: º» ÄÄÆ÷³ÍÆ®´Â º»ÀÎ Ä³¸¯ÅÍ(LocalPlayer)¿¡¸¸ ºÙÀ½.
-//        RemotePlayer¿£ ºÙÀÌÁö ¸» °Í.
+//  ì£¼ì˜: ë³¸ ì»´í¬ë„ŒíŠ¸ëŠ” ë³¸ì¸ ìºë¦­í„°(LocalPlayer)ì—ë§Œ ë¶™ìŒ.
+//        RemotePlayerì—” ë¶™ì´ì§€ ë§ ê²ƒ.
 // ============================================================================
 [RequireComponent(typeof(Defalult_Input))]
 public class LocalPlayerInputSender : MonoBehaviour

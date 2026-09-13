@@ -1,4 +1,4 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.UI;
 
 [DisallowMultipleComponent]
@@ -219,9 +219,9 @@ public class MonsterHealthBarUI : MonoBehaviour
         }
     }
 
-    // ¾À¿¡ ÀÖ´Â ¸ğµç Player_LockOnSystem Áß "È°¼ºÈ­µÈ"(ÁøÂ¥ ·ÎÄÃ ÇÃ·¹ÀÌ¾î) °Í¸¸ ¼±ÅÃ.
-    // ¿ø°İ ÇÃ·¹ÀÌ¾î/·Îºñ µğ¿À¶ó¸¶´Â ÄÄÆ÷³ÍÆ®°¡ Á¸ÀçÇÏµÇ enabled=false »óÅÂ·Î ³²¾ÆÀÖ¾î
-    // ´Ü¼ø FindFirstObjectByTypeÀº ±×°É Àß¸ø ÁıÀ» ¼ö ÀÖÀ½.
+    // ì”¬ì— ìˆëŠ” ëª¨ë“  Player_LockOnSystem ì¤‘ "í™œì„±í™”ëœ"(ì§„ì§œ ë¡œì»¬ í”Œë ˆì´ì–´) ê²ƒë§Œ ì„ íƒ.
+    // ì›ê²© í”Œë ˆì´ì–´/ë¡œë¹„ ë””ì˜¤ë¼ë§ˆëŠ” ì»´í¬ë„ŒíŠ¸ê°€ ì¡´ì¬í•˜ë˜ enabled=false ìƒíƒœë¡œ ë‚¨ì•„ìˆì–´
+    // ë‹¨ìˆœ FindFirstObjectByTypeì€ ê·¸ê±¸ ì˜ëª» ì§‘ì„ ìˆ˜ ìˆìŒ.
     private Player_LockOnSystem ResolveLocalLockOnSystem()
     {
         var all = FindObjectsByType<Player_LockOnSystem>(FindObjectsSortMode.None);
@@ -241,9 +241,9 @@ public class MonsterHealthBarUI : MonoBehaviour
 
         if (lockOnSystem == null || !lockOnSystem.enabled)
         {
-            // FindFirstObjectByType´Â ºñÈ°¼º ÄÄÆ÷³ÍÆ®(¿ø°İ ÇÃ·¹ÀÌ¾î/·Îºñ µğ¿À¶ó¸¶ÀÇ ²¨Áø
-            // LockOnSystem)µµ ÀâÀ» ¼ö ÀÖ¾î Ä³½ÌµÇ¸é ¿µ¿µ ³» ¶ô¿Â »óÅÂ¸¦ ¸ø ÀĞ´Â ¹ö±×°¡ ÀÖ¾úÀ½.
-            // ¡æ enabledÀÎ °Í¸¸ °ñ¶ó Ã£µµ·Ï ±³Ã¼.
+            // FindFirstObjectByTypeëŠ” ë¹„í™œì„± ì»´í¬ë„ŒíŠ¸(ì›ê²© í”Œë ˆì´ì–´/ë¡œë¹„ ë””ì˜¤ë¼ë§ˆì˜ êº¼ì§„
+            // LockOnSystem)ë„ ì¡ì„ ìˆ˜ ìˆì–´ ìºì‹±ë˜ë©´ ì˜ì˜ ë‚´ ë½ì˜¨ ìƒíƒœë¥¼ ëª» ì½ëŠ” ë²„ê·¸ê°€ ìˆì—ˆìŒ.
+            // â†’ enabledì¸ ê²ƒë§Œ ê³¨ë¼ ì°¾ë„ë¡ êµì²´.
             lockOnSystem = ResolveLocalLockOnSystem();
         }
 

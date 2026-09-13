@@ -5,7 +5,9 @@
 #include "../Common/PacketProtocol.h"
 #include "../Common/Logger.h"
 
+#include <cstdio>
 #include <cstring>
+#include <string>
 #include <vector>
 
 LobbyManager::LobbyManager(SessionDispatcher* d)
@@ -95,6 +97,12 @@ void LobbyManager::HandlePacket(ClientConnection* conn, int packetType,
         break;
     case PacketType::ROOM_SELECT_TEAM_REQUEST:
         HandleSelectTeam(conn, body, bodySize);
+        break;
+    case PacketType::CHAT_SEND:
+        HandleChat(conn, body, bodySize);
+        break;
+    case PacketType::ROOM_READY_REQUEST:
+        HandleRoomReady(conn);
         break;
     default:
         Log::Warn("로비에서 알 수 없는 패킷 type=%d from clientId=%d",
@@ -246,7 +254,14 @@ void LobbyManager::HandleRoomJoin(ClientConnection* conn, const char* body, int 
     conn->SendPacket((int)PacketType::ROOM_JOIN_RESULT, &res, sizeof(res));
 
     if (res.success)
-        BroadcastRoomState(GetRoom(req->roomId));   // 새 멤버 포함 전원에게 현황 push
+    {
+        RoomData* joined = GetRoom(req->roomId);
+        BroadcastRoomState(joined);                 // 새 멤버 포함 전원에게 현황 push
+
+        char line[MAX_CHAT_TEXT];
+        std::snprintf(line, sizeof(line), "%s님이 파티에 입장하였습니다.", conn->playerName);
+        SendSystemToRoom(joined, line);
+    }
 }
 
 // ============================================================================
@@ -292,7 +307,23 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
     }
     if (room->isStarting) return;
 
+    // 준비 확인. 방장을 뺀 전원이 준비돼야 시작한다.
+    if (!room->AllMembersReady())
+    {
+        SendSystemTo(conn, "아직 준비되지 않은 파티원이 있습니다.");
+        Log::Info("시작 거부(준비 미완료): roomId=%d host=%d", room->roomId, conn->clientId);
+        return;
+    }
+
     room->isStarting = true;
+
+    // 방 전원에게 "던전 생성 시작" 공지. 클라는 이걸 받아 로딩 화면을 띄운다.
+    // (서버 던전 생성이 ~400ms 걸려서 SESSION_ASSIGN만 기다리면 그만큼 멈춘 것처럼 보인다)
+    for (int cid : room->memberIds)
+    {
+        ClientConnection* mc = GetClient(cid);
+        if (mc) mc->SendPacket((int)PacketType::GAME_START_NOTICE, nullptr, 0);
+    }
 
     int sessionId = nextSessionId++;
     int mapSeed = (int)((uintptr_t)room ^ sessionId ^ 0x12345);
@@ -302,9 +333,18 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
     std::vector<int> playerIds = room->memberIds;
     std::vector<int> playerTeams = room->memberTeams;
 
+    // 세션에서 채팅 발신자 이름을 표시하려면 로비가 이름을 넘겨줘야 한다.
+    std::vector<std::string> playerNames;
+    playerNames.reserve(playerIds.size());
+    for (int memberId : playerIds)
+    {
+        ClientConnection* mc = GetClient(memberId);
+        playerNames.push_back(mc ? std::string(mc->playerName) : std::string());
+    }
+
     // 세션 매니저에게 IPC로 세션 생성 요청 (동기 대기)
     bool ok = dispatcher->RequestSessionCreate(sessionId, room->hostClientId,
-        mapSeed, playerIds, playerTeams);
+        mapSeed, playerIds, playerTeams, playerNames);
     if (!ok)
     {
         Log::Error("세션 생성 실패 sessionId=%d", sessionId);
@@ -337,6 +377,125 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
 
     // 방은 곧 비워질 거라 정리는 클라들이 disconnect 할 때 자연스럽게 됨.
     // 여기선 명시적으로 안 지움 (멤버들이 떠나면서 자동 정리).
+}
+
+// ============================================================================
+//  [시스템] 알림
+//
+//  채팅과 같은 패킷을 쓰되 채널을 CHAT_SYSTEM으로 보낸다.
+//  클라는 이 채널을 발신자 없이 노란색 [시스템] 줄로 그린다.
+// ============================================================================
+
+void LobbyManager::SendSystemToRoom(RoomData* room, const char* text)
+{
+    if (!room || !text) return;
+
+    ChatMessageData msg{};
+    msg.channel = CHAT_SYSTEM;
+    msg.senderId = 0;
+    msg.senderTeam = TEAM_UNASSIGNED;
+    std::strncpy(msg.text, text, sizeof(msg.text) - 1);
+
+    for (int cid : room->memberIds)
+    {
+        ClientConnection* mc = GetClient(cid);
+        if (mc) mc->SendPacket((int)PacketType::CHAT_MESSAGE, &msg, sizeof(msg));
+    }
+}
+
+void LobbyManager::SendSystemTo(ClientConnection* conn, const char* text)
+{
+    if (!conn || !text) return;
+
+    ChatMessageData msg{};
+    msg.channel = CHAT_SYSTEM;
+    msg.senderId = 0;
+    msg.senderTeam = TEAM_UNASSIGNED;
+    std::strncpy(msg.text, text, sizeof(msg.text) - 1);
+    conn->SendPacket((int)PacketType::CHAT_MESSAGE, &msg, sizeof(msg));
+}
+
+// ============================================================================
+//  핸들러: 준비 토글
+//
+//  방장은 준비 대상이 아니다(시작 버튼을 가짐).
+//  상태가 바뀌면 방 전원에게 ROOM_STATE를 다시 보내 버튼 표시를 맞춘다.
+// ============================================================================
+
+void LobbyManager::HandleRoomReady(ClientConnection* conn)
+{
+    if (conn->currentRoomId == 0) return;
+    RoomData* room = GetRoom(conn->currentRoomId);
+    if (!room) return;
+    if (conn->clientId == room->hostClientId) return;   // 방장은 준비 없음
+
+    bool now = !room->IsReady(conn->clientId);
+    room->SetReady(conn->clientId, now);
+
+    char line[MAX_CHAT_TEXT];
+    std::snprintf(line, sizeof(line), "%s님이 %s",
+        conn->playerName, now ? "준비를 완료했습니다." : "준비를 해제했습니다.");
+    SendSystemToRoom(room, line);
+
+    BroadcastRoomState(room);
+}
+
+// ============================================================================
+//  핸들러: 채팅
+//
+//  채널
+//   CHAT_ALL   : 로비에 로그인한 전원 (방 안이든 밖이든)
+//   CHAT_PARTY : 같은 방 멤버만. 방이 없으면 전체로 강등한다.
+//
+//  이름과 팀은 서버가 채운다. 클라가 보낸 값은 쓰지 않는다(위조 방지).
+// ============================================================================
+
+void LobbyManager::HandleChat(ClientConnection* conn, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(ChatSendRequest)) return;
+    if (conn->state == ClientConnection::ST_CONNECTED) return;   // 로그인 전엔 차단
+
+    const ChatSendRequest* req = reinterpret_cast<const ChatSendRequest*>(body);
+
+    // 본문 정리: 널 보장 + 빈 문자열 거부
+    char text[MAX_CHAT_TEXT];
+    std::memcpy(text, req->text, MAX_CHAT_TEXT);
+    text[MAX_CHAT_TEXT - 1] = '\0';
+    if (text[0] == '\0') return;
+
+    int channel = req->channel;
+    RoomData* room = (conn->currentRoomId != 0) ? GetRoom(conn->currentRoomId) : nullptr;
+
+    // 로비에 팀 채널은 없다. 방이 없으면 파티도 성립하지 않는다.
+    if (channel == CHAT_TEAM) channel = CHAT_PARTY;
+    if (channel == CHAT_PARTY && room == nullptr) channel = CHAT_ALL;
+    if (channel != CHAT_ALL && channel != CHAT_PARTY) channel = CHAT_ALL;
+
+    ChatMessageData msg{};
+    msg.channel = channel;
+    msg.senderId = conn->clientId;
+    msg.senderTeam = room ? room->GetTeam(conn->clientId) : TEAM_UNASSIGNED;
+    std::strncpy(msg.senderName, conn->playerName, sizeof(msg.senderName) - 1);
+    std::strncpy(msg.text, text, sizeof(msg.text) - 1);
+
+    if (channel == CHAT_PARTY)
+    {
+        for (int memberId : room->memberIds)
+        {
+            ClientConnection* mc = GetClient(memberId);
+            if (mc) mc->SendPacket((int)PacketType::CHAT_MESSAGE, &msg, sizeof(msg));
+        }
+        Log::Info("[채팅/파티] room=%d %s: %s", room->roomId, msg.senderName, msg.text);
+    }
+    else
+    {
+        for (auto& kv : authenticatedClients)
+        {
+            if (!kv.second->active) continue;
+            kv.second->SendPacket((int)PacketType::CHAT_MESSAGE, &msg, sizeof(msg));
+        }
+        Log::Info("[채팅/전체] %s: %s", msg.senderName, msg.text);
+    }
 }
 
 // ============================================================================
@@ -412,6 +571,10 @@ void LobbyManager::RemoveClientFromRoom(int clientId)
     RoomData* room = GetRoom(rid);
     if (!room) return;
 
+    // 알림 문구는 멤버를 지우기 전에 만들어 둔다.
+    char leaveLine[MAX_CHAT_TEXT];
+    std::snprintf(leaveLine, sizeof(leaveLine), "%s님이 파티에서 나갔습니다.", conn->playerName);
+
     room->RemoveMember(clientId);
     conn->currentRoomId = 0;
 
@@ -422,10 +585,20 @@ void LobbyManager::RemoveClientFromRoom(int clientId)
     }
     else
     {
+        SendSystemToRoom(room, leaveLine);
+
         if (room->hostClientId == clientId)
         {
             room->PromoteNewHostIfNeeded();
             Log::Info("호스트 변경: roomId=%d → 새 host=%d", rid, room->hostClientId);
+
+            ClientConnection* nh = GetClient(room->hostClientId);
+            if (nh)
+            {
+                char hostLine[MAX_CHAT_TEXT];
+                std::snprintf(hostLine, sizeof(hostLine), "%s님이 새 파티장이 되었습니다.", nh->playerName);
+                SendSystemToRoom(room, hostLine);
+            }
         }
         BroadcastRoomState(room);     // 남은 멤버들에게 갱신된 현황 push
     }
@@ -480,6 +653,7 @@ void LobbyManager::BroadcastRoomState(RoomData* room)
         m.clientId = cid;
         m.teamId = (i < room->memberTeams.size()) ? room->memberTeams[i] : TEAM_UNASSIGNED;
         m.isHost = (cid == room->hostClientId) ? 1 : 0;
+        m.isReady = room->IsReady(cid) ? 1 : 0;
         ClientConnection* mc = GetClient(cid);
         if (mc) std::strncpy(m.playerName, mc->playerName, sizeof(m.playerName) - 1);
     }

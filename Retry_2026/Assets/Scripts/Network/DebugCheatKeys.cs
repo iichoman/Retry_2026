@@ -30,6 +30,8 @@ public class DebugCheatKeys : MonoBehaviour
     {
         if (!enableCheats || bootstrap == null) return;
 
+        if (ChatUI.IsTyping) return;                 // 채팅 입력 중엔 치트키를 먹지 않는다
+
         Keyboard kb = Keyboard.current;
         if (kb == null) return;
 

@@ -1,23 +1,23 @@
-using System.Collections.Generic;
+ï»¿using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.InputSystem;
 
 // ============================================================================
 //  RemoteLootRegistry
 //
-//  ¼­¹ö°¡ »ı¼ºÇÑ Àü¸®Ç° ÄÁÅ×ÀÌ³Ê¸¦ ¿ùµå¿¡ Ç¥½ÃÇÏ°í ·çÆÃ ¿äÃ»À» Áß°èÇÑ´Ù.
-//   - OnSpawn   : ÄÁÅ×ÀÌ³Ê »ı¼º ¶Ç´Â ³»¿ë¹° °»½Å
-//   - OnRemoved : ÄÁÅ×ÀÌ³Ê ¼Ò¸ê (³»¿ë¹° ¼ÒÁø)
+//  ì„œë²„ê°€ ìƒì„±í•œ ì „ë¦¬í’ˆ ì»¨í…Œì´ë„ˆë¥¼ ì›”ë“œì— í‘œì‹œí•˜ê³  ë£¨íŒ… ìš”ì²­ì„ ì¤‘ê³„í•œë‹¤.
+//   - OnSpawn   : ì»¨í…Œì´ë„ˆ ìƒì„± ë˜ëŠ” ë‚´ìš©ë¬¼ ê°±ì‹ 
+//   - OnRemoved : ì»¨í…Œì´ë„ˆ ì†Œë©¸ (ë‚´ìš©ë¬¼ ì†Œì§„)
 //
-//  ÄÁÅ×ÀÌ³Ê ³»¿ë¹°Àº ¼­¹ö°¡ ¼ÒÀ¯ÇÑ´Ù. Å¬¶ó´Â Ç¥½Ã¸¸ ÇÏ°í,
-//  ÇÃ·¹ÀÌ¾î°¡ FÅ°(¶Ç´Â UI)·Î ·çÆÃÇÏ¸é ¼­¹ö¿¡ ¿äÃ»¸¸ º¸³½´Ù.
+//  ì»¨í…Œì´ë„ˆ ë‚´ìš©ë¬¼ì€ ì„œë²„ê°€ ì†Œìœ í•œë‹¤. í´ë¼ëŠ” í‘œì‹œë§Œ í•˜ê³ ,
+//  í”Œë ˆì´ì–´ê°€ Fí‚¤(ë˜ëŠ” UI)ë¡œ ë£¨íŒ…í•˜ë©´ ì„œë²„ì— ìš”ì²­ë§Œ ë³´ë‚¸ë‹¤.
 //
-//  Inspector ¼³Á¤:
-//   - LootPrefab: ºñ¿ì¸é ±âº» Cube·Î ´ëÃ¼ Ç¥½Ã
+//  Inspector ì„¤ì •:
+//   - LootPrefab: ë¹„ìš°ë©´ ê¸°ë³¸ Cubeë¡œ ëŒ€ì²´ í‘œì‹œ
 // ============================================================================
 public class RemoteLootRegistry : MonoBehaviour
 {
-    [Tooltip("Àü¸®Ç° ÄÁÅ×ÀÌ³Ê prefab. ºñ¿ì¸é ±âº» Cube »ı¼º.")]
+    [Tooltip("ì „ë¦¬í’ˆ ì»¨í…Œì´ë„ˆ prefab. ë¹„ìš°ë©´ ê¸°ë³¸ Cube ìƒì„±.")]
     public GameObject LootPrefab;
 
     [SerializeField] private Vector3 lootScale = new Vector3(0.6f, 0.4f, 0.6f);
@@ -47,7 +47,7 @@ public class RemoteLootRegistry : MonoBehaviour
 
     public void OnSpawn(LootSpawnData sp)
     {
-        contents[sp.lootId] = sp;   // °»½Å ÆĞÅ¶ÀÌ¸é ³»¿ë¹°¸¸ µ¤¾î¾¸
+        contents[sp.lootId] = sp;   // ê°±ì‹  íŒ¨í‚·ì´ë©´ ë‚´ìš©ë¬¼ë§Œ ë®ì–´ì”€
 
         if (active.ContainsKey(sp.lootId)) return;
 
@@ -80,13 +80,15 @@ public class RemoteLootRegistry : MonoBehaviour
     private void Update()
     {
         if (bootstrap == null || bootstrap.LocalPlayer == null) return;
+        if (ChatUI.IsTyping) return;                 // ì±„íŒ… ì…ë ¥ ì¤‘ì—” Fë¥¼ ë¨¹ì§€ ì•ŠëŠ”ë‹¤
+
         Keyboard kb = Keyboard.current;
         if (kb == null || !kb.fKey.wasPressedThisFrame) return;
 
         int lootId = FindNearestLootInRange(bootstrap.LocalPlayer.transform.position);
         if (lootId == 0) return;
 
-        // ÄÁÅ×ÀÌ³Ê ³»¿ë¹°À» ÀüºÎ ¿äÃ». °Å¸®/Àç°í/¿©À¯ °ËÁõÀº ¼­¹ö°¡ ÇÑ´Ù.
+        // ì»¨í…Œì´ë„ˆ ë‚´ìš©ë¬¼ì„ ì „ë¶€ ìš”ì²­. ê±°ë¦¬/ì¬ê³ /ì—¬ìœ  ê²€ì¦ì€ ì„œë²„ê°€ í•œë‹¤.
         LootSpawnData data = contents[lootId];
         int n = Mathf.Min(data.entryCount, LootConst.MAX_LOOT_ENTRIES);
         for (int i = 0; i < n; i++)
@@ -95,7 +97,7 @@ public class RemoteLootRegistry : MonoBehaviour
         }
     }
 
-    // ·çÆÃ »ç°Å¸® ¾ÈÀÇ °¡Àå °¡±î¿î ÄÁÅ×ÀÌ³Ê. ¾øÀ¸¸é 0.
+    // ë£¨íŒ… ì‚¬ê±°ë¦¬ ì•ˆì˜ ê°€ì¥ ê°€ê¹Œìš´ ì»¨í…Œì´ë„ˆ. ì—†ìœ¼ë©´ 0.
     private int FindNearestLootInRange(Vector3 playerPos)
     {
         int best = 0;
@@ -106,7 +108,7 @@ public class RemoteLootRegistry : MonoBehaviour
             if (kv.Value == null) continue;
 
             Vector3 d = kv.Value.transform.position - playerPos;
-            d.y = 0f;                       // ¼­¹ö ÆÇÁ¤°ú µ¿ÀÏÇÏ°Ô XZ Æò¸é
+            d.y = 0f;                       // ì„œë²„ íŒì •ê³¼ ë™ì¼í•˜ê²Œ XZ í‰ë©´
             float sq = d.sqrMagnitude;
             if (sq > bestSq) continue;
 

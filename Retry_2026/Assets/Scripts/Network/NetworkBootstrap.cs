@@ -41,6 +41,9 @@ public class NetworkBootstrap : MonoBehaviour
     public DebugLobbyUI DebugUI { get; private set; }
 
     public GameObject LocalPlayer { get; private set; }
+
+    /// <summary>전원 입장이 끝나 서버가 시작 신호를 보냈는가. 타이머/로딩화면 기준.</summary>
+    public bool SessionGameStarted { get; private set; }
     public event System.Action<PacketType, byte[]> LobbyPacket; // LobbyUI가 구독하는 로비 패킷 이벤트
 
     // 탈출 관련 서버 통보. ExitPortal / DungeonExitManager가 구독.
@@ -55,6 +58,10 @@ public class NetworkBootstrap : MonoBehaviour
     public event System.Action<LootRemovedData> LootRemovedReceived;
 
     public ServerInventoryBridge Inventory { get; private set; }
+    public ChatUI Chat { get; private set; }
+
+    // 로비/세션 어느 쪽에서 오든 같은 이벤트로 올려준다.
+    public event System.Action<ChatMessageData> ChatMessageReceived;
     public RemoteLootRegistry RemoteLoot { get; private set; }
     public DebugCheatKeys Cheats { get; private set; }   // [테스트 전용]
 
@@ -94,7 +101,11 @@ public class NetworkBootstrap : MonoBehaviour
         RemoteProjectiles = EnsureChild<RemoteProjectileRegistry>("RemoteProjectileRegistry");
         Inventory = EnsureChild<ServerInventoryBridge>("ServerInventoryBridge");
         RemoteLoot = EnsureChild<RemoteLootRegistry>("RemoteLootRegistry");
+
+        // 로비/인게임 공용 채팅. 씬 작업 없이 자체적으로 캔버스를 만든다.
+        Chat = EnsureChild<ChatUI>("ChatUI");
         RemoteLoot.Initialize(this);
+        Chat.Initialize(this);
 
         // [테스트 전용] F9 즉시 탈출. 배포 시 이 두 줄과 DebugCheatKeys.cs 삭제.
         Cheats = EnsureChild<DebugCheatKeys>("DebugCheatKeys");
@@ -160,6 +171,12 @@ public class NetworkBootstrap : MonoBehaviour
         LobbyPacket?.Invoke(type, body);
         switch (type)
         {
+            case PacketType.CHAT_MESSAGE:
+                {
+                    var m = PacketIO.BytesToStruct<ChatMessageData>(body, 0);
+                    ChatMessageReceived?.Invoke(m);
+                    break;
+                }
             case PacketType.LOGIN_RESULT:
                 {
                     var r = PacketIO.BytesToStruct<LoginResult>(body, 0);
@@ -216,6 +233,7 @@ public class NetworkBootstrap : MonoBehaviour
             pendingAssign.sessionId,
             Identity.LocalClientId))
         {
+            SessionGameStarted = false;         // 시작 신호를 기다린다
             Identity.IsConnectedToSession = true;
             AttachLocalPlayerSenders();
         }
@@ -346,6 +364,40 @@ public class NetworkBootstrap : MonoBehaviour
         var playerInv = LocalPlayer.GetComponent<PlayerInventory>();
         if (playerInv == null) playerInv = LocalPlayer.GetComponentInChildren<PlayerInventory>();
         if (Inventory != null) Inventory.Initialize(this, playerInv);
+
+        RebindPlayerUI(playerInv);
+    }
+
+    // ------------------------------------------------------------------
+    //  씬에 미리 배치된 UI들은 '씬에 있던 플레이어'를 참조하도록 저장돼 있다.
+    //  실제로 조작하는 캐릭터는 네트워크로 새로 스폰한 LocalPlayer이므로,
+    //  HP바 / 인벤토리 / 장비창을 새 캐릭터로 다시 연결해야 한다.
+    //  이 처리가 없으면 HP가 안 움직이고 장비창이 빈 채로 뜬다.
+    // ------------------------------------------------------------------
+    private void RebindPlayerUI(PlayerInventory playerInv)
+    {
+        if (LocalPlayer == null) return;
+
+        var equip = LocalPlayer.GetComponent<PlayerEquipment>();
+        if (equip == null) equip = LocalPlayer.GetComponentInChildren<PlayerEquipment>();
+
+        var hud = FindFirstObjectByType<PlayerHudUI>(FindObjectsInactive.Include);
+        var state = LocalPlayer.GetComponent<Player_State>();
+        if (hud != null && state != null) hud.SetPlayer(state);
+
+        var invUI = FindFirstObjectByType<InventoryUI>(FindObjectsInactive.Include);
+        if (invUI != null) invUI.RebindOwner(playerInv, equip);
+
+        var equipUI = FindFirstObjectByType<EquipmentUI>(FindObjectsInactive.Include);
+        if (equipUI != null) equipUI.RebindOwner(equip);
+
+        // 인벤토리 토글(i)을 새 캐릭터의 입력으로 다시 연결.
+        var uiCtrl = FindFirstObjectByType<GameUIController>(FindObjectsInactive.Include);
+        if (uiCtrl != null) uiCtrl.RebindPlayerInput();
+
+        // 진행 시간은 SESSION_START_GAME(전원 입장) 때 0부터 시작한다. 여기서는 켜지 않는다.
+
+        Debug.Log($"[Bootstrap] 플레이어 UI 재연결: inv={playerInv != null} equip={equip != null} hp={state != null}");
     }
 
     // ── 세션 패킷 처리 ───────────────────────────────────────────────
@@ -512,6 +564,19 @@ public class NetworkBootstrap : MonoBehaviour
                     RemoteProjectiles.OnDespawn(dp);
                     break;
                 }
+            case PacketType.SESSION_START_GAME:
+                {
+                    // 파티 전원이 던전에 들어왔다. 여기서부터 같이 시작.
+                    if (!SessionGameStarted)
+                    {
+                        SessionGameStarted = true;
+                        LoadingOverlay.Hide();
+                        if (DungeonExitManager.Instance != null)
+                            DungeonExitManager.Instance.ResetTimer();   // 진행 시간 0부터
+                        Debug.Log("<color=lime>[Session] 전원 입장 완료 - 게임 시작</color>");
+                    }
+                    break;
+                }
             case PacketType.EXTRACTION_RESULT:
                 {
                     // 서버 탈출 판정 결과. 성공해야만 실제 탈출 처리.
@@ -555,6 +620,12 @@ public class NetworkBootstrap : MonoBehaviour
                 {
                     var rm = PacketIO.BytesToStruct<LootRemovedData>(body, 0);
                     LootRemovedReceived?.Invoke(rm);
+                    break;
+                }
+            case PacketType.CHAT_MESSAGE:
+                {
+                    var m = PacketIO.BytesToStruct<ChatMessageData>(body, 0);
+                    ChatMessageReceived?.Invoke(m);
                     break;
                 }
             case PacketType.SESSION_ENDED:
