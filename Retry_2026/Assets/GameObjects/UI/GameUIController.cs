@@ -10,7 +10,6 @@ public class GameUIController : MonoBehaviour
     [SerializeField] private LootUI lootUI;
     [SerializeField] private InputActionReference cancelAction;
     [SerializeField] private bool showCursorWhenUiOpen = true;
-    [SerializeField] private CursorLockMode gameplayCursorLockMode = CursorLockMode.Locked;
 
     private bool inventoryOpen;
     private bool lootOpen;
@@ -275,7 +274,7 @@ public class GameUIController : MonoBehaviour
         if (showCursorWhenUiOpen)
         {
             // 이 프로젝트는 커서 잠금을 쓰지 않는다(마우스 룩 상시, 로비/일시정지 UI 클릭 필요).
-            // 기존엔 UI를 닫을 때 gameplayCursorLockMode(Locked)를 적용해서
+            // 기존엔 UI를 닫을 때 커서를 다시 Locked로 되돌려서
             // 로비에서 인벤토리를 열었다 닫으면 마우스가 사라지는 버그가 있었다.
             Cursor.visible = true;
             Cursor.lockState = CursorLockMode.None;

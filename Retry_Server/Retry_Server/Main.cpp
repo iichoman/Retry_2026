@@ -4,6 +4,7 @@
 #include "NetworkAcceptor.h"
 #include "SessionDispatcher.h"
 #include "SessionEventReceiver.h"
+#include "../DB/DbConfig.h"
 
 #include <iostream>
 #include <string>
@@ -44,6 +45,14 @@ int main()
     NetworkAcceptor   acceptor(&lobby, LOBBY_LISTEN_PORT, WORKER_THREAD_COUNT);
     SessionEventReceiver eventRx(&lobby, SESSION_EVENT_PORT);
 
+    // DB 워커 시작. 접속에 실패해도 DB_OPTIONAL이면 게임은 그대로 돌아간다.
+    if (!lobby.StartDb() && !DB_OPTIONAL)
+    {
+        Log::Error("DB 접속 실패 (DB_OPTIONAL=false)");
+        Net::CleanupWinsock();
+        return 1;
+    }
+
     if (!eventRx.Start())
     {
         Log::Error("세션 이벤트 수신 시작 실패");
@@ -78,6 +87,7 @@ int main()
     Log::Info("종료 요청 수신, 정리 중...");
     acceptor.Stop();
     eventRx.Stop();
+    lobby.StopDb();      // 큐에 남은 전적까지 마저 기록하고 종료
     lobby.Shutdown();
     Net::CleanupWinsock();
     Log::Info("로비 서버 종료 완료");

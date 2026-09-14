@@ -76,15 +76,9 @@ public class DungeonResultUI : MonoBehaviour
             monsterKillsText.text = $"잡은 몬스터: {result.monsterKillCount}";
         }
 
-        if (goldText != null)
-        {
-            goldText.text = $"골드: {result.gold}";
-        }
-
-        if (itemsText != null)
-        {
-            itemsText.text = FormatItems(result);
-        }
+        // 골드/아이템은 아직 구현 전이라 칸 자체를 숨긴다. 기능이 들어오면 되살리면 된다.
+        if (goldText != null) goldText.gameObject.SetActive(false);
+        if (itemsText != null) itemsText.gameObject.SetActive(false);
     }
 
     private void HandleLobbyButtonClicked()

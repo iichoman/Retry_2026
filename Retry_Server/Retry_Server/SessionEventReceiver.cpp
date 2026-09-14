@@ -81,7 +81,9 @@ void SessionEventReceiver::RunLoop()
 
 void SessionEventReceiver::HandleOneClient(SOCKET cs)
 {
-    char buf[1024];
+    // IpcSessionEnded는 플레이어별 전적을 싣느라 1.5KB가 넘는다.
+    // 버퍼가 작으면 조용히 잘려서 전적이 통째로 사라진다.
+    char buf[sizeof(PacketHeader) + sizeof(IpcSessionEnded) + 256];
     int n = Net::RecvPacket(cs, buf, sizeof(buf));
     if (n <= 0)
     {
@@ -104,7 +106,10 @@ void SessionEventReceiver::HandleOneClient(SOCKET cs)
     IpcSessionEnded* msg = reinterpret_cast<IpcSessionEnded*>(buf + sizeof(*h));
     if (lobby)
     {
+        int cnt = msg->resultCount;
+        if (cnt < 0) cnt = 0;
+        if (cnt > MAX_SESSION_PLAYERS) cnt = MAX_SESSION_PLAYERS;
         lobby->OnSessionEnded(msg->sessionId, msg->reason,
-            msg->totalPlayers, msg->survivors);
+            msg->totalPlayers, msg->survivors, msg->results, cnt);
     }
 }

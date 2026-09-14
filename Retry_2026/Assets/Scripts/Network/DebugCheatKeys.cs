@@ -4,7 +4,8 @@ using UnityEngine.InputSystem;
 // ============================================================================
 //  DebugCheatKeys  [테스트 전용 — 배포 전 삭제]
 //
-//  F9 : 탈출 방 근처로 이동 (탈출 자체는 정상 흐름대로 진행)
+//  F9  : 탈출 방 근처로 이동 (탈출 자체는 정상 흐름대로 진행)
+//  F10 : 보스 방 근처로 이동
 //
 //  위치는 서버가 권위라 클라가 스스로 순간이동하면 되돌려진다.
 //  서버가 좌표를 옮기고 PLAYER_MOVE로 통보하는 방식이며,
@@ -45,6 +46,18 @@ public class DebugCheatKeys : MonoBehaviour
 
             Debug.Log("<color=yellow>[치트] F9 탈출 방 이동 요청</color>");
             bootstrap.RequestDebugTeleportExit();
+        }
+
+        if (kb.f10Key.wasPressedThisFrame)
+        {
+            if (bootstrap.Session == null || !bootstrap.Session.IsConnected)
+            {
+                Debug.LogWarning("[치트] 세션 미연결 — 이동 요청 불가");
+                return;
+            }
+
+            Debug.Log("<color=yellow>[치트] F10 보스 방 이동 요청</color>");
+            bootstrap.RequestDebugTeleportBoss();
         }
     }
 }

@@ -141,6 +141,11 @@ public class SessionClient
     }
 
     /// <summary>[치트] 탈출 방 이동 요청. 본문 없음. 배포 시 제거.</summary>
+    public void SendDebugTeleportBoss()
+    {
+        SendBytes(PacketIO.MakeEmptyPacket(PacketType.DEBUG_TELEPORT_BOSS));
+    }
+
     public void SendDebugTeleportExit()
     {
         SendBytes(PacketIO.MakeEmptyPacket(PacketType.DEBUG_TELEPORT_EXIT));

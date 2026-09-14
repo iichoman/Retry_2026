@@ -36,11 +36,24 @@ public class LobbyRoom : MonoBehaviour
     [SerializeField] private float lookHeight = 1.0f;
     [SerializeField] private float fieldOfView = 38f;
 
+    [Header("타이틀 화면 구도 (왼쪽 UI 3 : 캐릭터 7)")]
+    [SerializeField] private float titleScreenX = 0.66f;          // 캐릭터가 놓일 가로 위치 0=왼끝 1=오른끝
+    [SerializeField] private float titleCameraDistance = 2.6f;    // 작을수록 줌인
+    [SerializeField] private float titleCameraHeight = 1.05f;
+    [SerializeField] private float titleLookHeight = 0.92f;
+    [SerializeField] private float titleFov = 38f;
+    [SerializeField] private float viewMoveSeconds = 1.1f;        // 타이틀 → 로비 이동 시간
+
     [Header("캐릭터")]
     [SerializeField] private float playerYOffset = 0f;     // 발이 바닥에 안 맞으면 조정
     [SerializeField] private float playerYaw = 0f;         // 등이 보이면 180
     [SerializeField] private float dragRotateSpeed = 0.4f; // 캐릭터 꾹 눌러 드래그 회전 감도
     [SerializeField] private float returnRotateSpeed = 12f;// 놓았을 때 제자리(정면) 복귀 속도
+
+    [Header("캐릭터 클릭 = 공격 모션")]
+    [SerializeField] private float dragThresholdPx = 8f;   // 이만큼 움직이면 클릭이 아니라 드래그
+    [SerializeField] private float clickMaxSeconds = 0.35f;// 이보다 오래 누르면 클릭으로 안 침
+    [SerializeField] private float attackLockSeconds = 0.8f;// 모션 도는 동안 재입력 무시
 
     private NetworkBootstrap bootstrap;
     private GameObject dioramaRoot, lobbyPlayer;
@@ -50,15 +63,32 @@ public class LobbyRoom : MonoBehaviour
     private bool returning;
     private Quaternion homeRot = Quaternion.identity;
 
+    // 클릭/드래그 판별 + 콤보 상태
+    private bool pressedOnPlayer;
+    private float pressTime, pressTravel;
+    private float attackReadyAt;
+    private const string AttackState = "sword_attack_1";
+
     // 기존 카메라 설정 백업 (원복용)
     private bool camStateSaved;
     private CameraClearFlags savedClearFlags;
     private Color savedBg;
     private float savedFov, savedNear;
 
+    // 0 = 타이틀 구도(캐릭터 오른쪽), 1 = 로비 구도(캐릭터 중앙). 그 사이를 천천히 오간다.
+    private static LobbyRoom instance;
+    private float viewT, viewTarget;
+
+    // LobbyUI가 화면을 바꿀 때 호출한다. 타이틀이면 0, 그 외에는 1로 흘러간다.
+    public static void SetTitleView(bool title)
+    {
+        if (instance != null) instance.viewTarget = title ? 0f : 1f;
+    }
+
     // ========================================================================
     private void Start()
     {
+        instance = this;
         bootstrap = FindFirstObjectByType<NetworkBootstrap>();
         EnsureCamera();
         BuildDiorama();
@@ -76,11 +106,26 @@ public class LobbyRoom : MonoBehaviour
             return;
         }
         if (!active) return;
+        // 타이틀 ↔ 로비 구도 사이를 부드럽게 이동
+        viewT = Mathf.MoveTowards(viewT, viewTarget,
+                                  Time.unscaledDeltaTime / Mathf.Max(0.05f, viewMoveSeconds));
+        PositionCamera();
         HandleDragRotate();
         HandleReturn();
     }
 
-    // 중앙 캐릭터를 마우스로 꾹 눌러 드래그하면 좌우 회전 → 놓으면 정면(homeRot)으로 복귀
+    private void OnDestroy()
+    {
+        if (instance == this) instance = null;
+    }
+
+    // 캐릭터를 잡고 끌면 좌우 회전, 짧게 톡 치면 공격 모션.
+    //
+    // 둘을 가르는 기준은 두 가지를 AND로 본다.
+    //   · 누른 채 움직인 거리가 dragThresholdPx 미만    (손이 안 흔들렸다)
+    //   · 누르고 뗀 시간이 clickMaxSeconds 미만          (꾹 누른 게 아니다)
+    // 회전도 거리 기준을 넘긴 뒤에야 시작하므로, 클릭하려다 1~2px 밀려도
+    // 캐릭터가 홱 돌지 않는다.
     private void HandleDragRotate()
     {
         if (cam == null || lobbyPlayer == null) return;
@@ -92,20 +137,53 @@ public class LobbyRoom : MonoBehaviour
             Ray ray = cam.ScreenPointToRay(mouse.position.ReadValue());
             if (Physics.Raycast(ray, out RaycastHit hit, 50f) && IsPartOfPlayer(hit.collider.transform))
             {
-                draggingPlayer = true;
+                pressedOnPlayer = true;
+                draggingPlayer = false;
+                pressTime = Time.unscaledTime;
+                pressTravel = 0f;
                 returning = false;
             }
         }
-        if (draggingPlayer && mouse.leftButton.isPressed)
+
+        if (pressedOnPlayer && mouse.leftButton.isPressed)
         {
             float dx = mouse.delta.ReadValue().x;
-            lobbyPlayer.transform.Rotate(0f, -dx * dragRotateSpeed, 0f, Space.World);
+            pressTravel += mouse.delta.ReadValue().magnitude;
+
+            if (!draggingPlayer && pressTravel >= dragThresholdPx)
+                draggingPlayer = true;              // 여기서부터 회전으로 인정
+
+            if (draggingPlayer)
+                lobbyPlayer.transform.Rotate(0f, -dx * dragRotateSpeed, 0f, Space.World);
         }
-        if (mouse.leftButton.wasReleasedThisFrame && draggingPlayer)
+
+        if (mouse.leftButton.wasReleasedThisFrame && pressedOnPlayer)
         {
+            bool wasClick = !draggingPlayer
+                         && pressTravel < dragThresholdPx
+                         && (Time.unscaledTime - pressTime) < clickMaxSeconds;
+
+            if (wasClick) PlayAttack();
+            else returning = true;                  // 돌렸으면 정면으로 복귀
+
+            pressedOnPlayer = false;
             draggingPlayer = false;
-            returning = true;   // 놓으면 제자리로 복귀 시작
         }
+    }
+
+    // 로비 화면에서만, 그리고 1타만. 시작 화면(viewT<1)에서는 반응하지 않는다.
+    private void PlayAttack()
+    {
+        if (viewT < 0.99f) return;                              // 아직 타이틀 구도
+        if (Time.unscaledTime < attackReadyAt) return;          // 모션 끝나기 전 재입력 무시
+
+        var anim = lobbyPlayer != null ? lobbyPlayer.GetComponentInChildren<Animator>() : null;
+        if (anim == null || anim.runtimeAnimatorController == null) return;
+
+        int hash = Animator.StringToHash(AttackState);
+        if (!anim.HasState(0, hash)) return;                    // 없는 상태면 조용히 무시
+        anim.CrossFadeInFixedTime(hash, 0.06f, 0, 0f);
+        attackReadyAt = Time.unscaledTime + attackLockSeconds;
     }
 
     private void HandleReturn()
@@ -157,12 +235,30 @@ public class LobbyRoom : MonoBehaviour
         cam.nearClipPlane = 0.05f;
     }
 
+    // viewT 0 = 타이틀 구도(캐릭터가 화면 오른쪽), 1 = 로비 구도(정중앙).
+    //
+    // 핵심: 카메라를 "회전시켜" 캐릭터를 옆으로 보내면 원근이 틀어져 캐릭터가
+    // 기울어 보인다. 그래서 LookAt으로 방향을 먼저 정한 뒤 회전은 손대지 않고
+    // 오른쪽 축으로 평행 이동만 시킨다(렌즈 시프트와 같은 효과).
     private void PositionCamera()
     {
         if (cam == null) return;
-        Vector3 p = Vector3.zero;
-        cam.transform.position = p + new Vector3(0f, cameraHeight, cameraDistance);
-        cam.transform.LookAt(p + new Vector3(0f, lookHeight, 0f));
+
+        float s = viewT * viewT * (3f - 2f * viewT);           // smoothstep: 끝에서 부드럽게
+        float dist = Mathf.Lerp(titleCameraDistance, cameraDistance, s);
+        float hgt = Mathf.Lerp(titleCameraHeight, cameraHeight, s);
+        float look = Mathf.Lerp(titleLookHeight, lookHeight, s);
+        float fov = Mathf.Lerp(titleFov, fieldOfView, s);
+        float sx = Mathf.Lerp(titleScreenX, 0.5f, s);          // 캐릭터의 가로 화면 위치
+
+        cam.fieldOfView = fov;
+        cam.transform.position = new Vector3(0f, hgt, dist);
+        cam.transform.LookAt(new Vector3(0f, look, 0f));
+
+        // 캐릭터 거리에서의 화면 반폭(월드 단위) → 원하는 화면 비율만큼 옆으로 민다
+        float halfH = Mathf.Tan(fov * 0.5f * Mathf.Deg2Rad) * dist;
+        float halfW = halfH * Mathf.Max(0.1f, cam.aspect);
+        cam.transform.position -= cam.transform.right * ((sx - 0.5f) * 2f * halfW);
     }
 
     // ========================================================================
@@ -176,18 +272,19 @@ public class LobbyRoom : MonoBehaviour
         var floor = GameObject.CreatePrimitive(PrimitiveType.Cube);
         floor.name = "FloorTile";
         floor.transform.SetParent(dioramaRoot.transform, false);
-        floor.transform.position = new Vector3(0, -0.05f, -0.5f);
-        floor.transform.localScale = new Vector3(6f, 0.1f, 6f);
+        // 바닥/벽을 가로·세로 2배로. 타일 반복도 2배로 올려야 타일 한 칸 크기가 유지된다.
+        floor.transform.position = new Vector3(0, -0.05f, -1.0f);
+        floor.transform.localScale = new Vector3(12f, 0.1f, 12f);
         floor.GetComponent<Renderer>().sharedMaterial =
-            MakeLitMat(new Color(0.22f, 0.22f, 0.24f), floorTexture, new Vector2(3, 3));
+            MakeLitMat(new Color(0.22f, 0.22f, 0.24f), floorTexture, new Vector2(6, 6));
 
         var wall = GameObject.CreatePrimitive(PrimitiveType.Cube);
         wall.name = "WallTile";
         wall.transform.SetParent(dioramaRoot.transform, false);
-        wall.transform.position = new Vector3(0, 1.6f, -2.8f);
-        wall.transform.localScale = new Vector3(6f, 3.4f, 0.2f);
+        wall.transform.position = new Vector3(0, 3.2f, -5.6f);
+        wall.transform.localScale = new Vector3(12f, 6.8f, 0.2f);
         wall.GetComponent<Renderer>().sharedMaterial =
-            MakeLitMat(new Color(0.16f, 0.16f, 0.18f), wallTexture, new Vector2(3, 2));
+            MakeLitMat(new Color(0.16f, 0.16f, 0.18f), wallTexture, new Vector2(6, 4));
 
         var lgt = new GameObject("LobbyKeyLight");
         lgt.transform.SetParent(dioramaRoot.transform, false);
@@ -227,7 +324,10 @@ public class LobbyRoom : MonoBehaviour
         if (cc != null) { pick.center = cc.center; pick.height = cc.height; pick.radius = cc.radius; }
         else { pick.center = new Vector3(0, 0.95f, 0); pick.height = 1.9f; pick.radius = 0.4f; }
         if (cc != null) cc.enabled = false;
-        // Animator는 그대로 둠 → 기본 idle 재생
+        // Animator는 그대로 둠 → 기본 idle 재생.
+        // 단 루트 모션은 끈다. 켜두면 클릭 공격 모션이 캐릭터를 앞으로 밀어낸다.
+        var anim = lobbyPlayer.GetComponentInChildren<Animator>();
+        if (anim != null) anim.applyRootMotion = false;
     }
 
     // ========================================================================

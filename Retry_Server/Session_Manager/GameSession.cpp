@@ -10,6 +10,7 @@
 
 #include <chrono>
 #include <cstring>
+#include <vector>
 
 using namespace std::chrono;
 
@@ -147,6 +148,8 @@ void GameSession::AttachClient(int clientId, SessionClientConnection* conn)
         }
 
         pe->conn = conn;
+        pe->joinedAtMs = duration_cast<milliseconds>(
+            system_clock::now().time_since_epoch()).count();
         players[clientId] = std::move(pe);
         Log::Info("[Session %d] 입장: clientId=%d (현재 %d명) pos=(%.1f, %.1f, %.1f)",
             sessionId, clientId, (int)players.size(),
@@ -245,6 +248,10 @@ void GameSession::HandlePacket(int clientId, int packetType,
 
     case PacketType::CHAT_SEND:
         HandleChat(clientId, body, bodySize);
+        break;
+
+    case PacketType::DEBUG_TELEPORT_BOSS:   // [치트] 배포 시 제거
+        HandleDebugTeleportBoss(clientId);
         break;
 
     case PacketType::DEBUG_TELEPORT_EXIT:   // [치트] 배포 시 제거
@@ -376,9 +383,13 @@ void GameSession::HandleItemPickup(int clientId, const char* body, int bodySize)
 }
 
 // 몬스터가 죽었을 때 전리품 생성. 전투 코드에서 호출된다.
-void GameSession::OnMonsterKilled(int monsterId, int /*killerClientId*/)
+void GameSession::OnMonsterKilled(int monsterId, int killerClientId)
 {
     std::lock_guard<std::recursive_mutex> lk(mtx);
+
+    // 전적 집계 (세션 종료 시 로비 → DB로 넘어간다)
+    if (PlayerEntity* killer = GetPlayer(killerClientId))
+        ++killer->monsterKills;
 
     auto& monsters = worldSim.GetMonsters();
     auto it = monsters.find(monsterId);
@@ -403,6 +414,83 @@ void GameSession::HandleDebugTeleportExit(int clientId)
     if (!DEBUG_ALLOW_TELEPORT) return;
 
     std::lock_guard<std::recursive_mutex> lk(mtx);
+
+    if (dungeon.exitRoomId < 0)
+    {
+        Log::Warn("[치트] 이 던전에 탈출 방이 없음 (createExitRoom 확인)");
+        return;
+    }
+
+    Vec3 dest;
+    if (!RoomCenterStandPos(dungeon.exitRoomId, dest))
+    {
+        Log::Warn("[치트] 탈출 방 %d 의 바닥 타일을 찾지 못함", dungeon.exitRoomId);
+        return;
+    }
+    DebugTeleportTo(clientId, dest, "탈출 방");
+}
+
+// F10 — 보스 옆으로. 보스가 살아 있으면 그 옆, 없으면 보스 방 중앙.
+void GameSession::HandleDebugTeleportBoss(int clientId)
+{
+    if (!DEBUG_ALLOW_TELEPORT) return;
+
+    std::lock_guard<std::recursive_mutex> lk(mtx);
+
+    for (auto& kv : worldSim.GetMonsters())
+    {
+        const MonsterEntity& m = *kv.second;
+        if (m.kind != MONSTER_BOSS || m.aiState == AI_DEAD) continue;
+
+        Vec3 dest = m.position;
+        dest.x += 3.0f;                 // 몸통에 끼지 않게 옆으로 비켜 세운다
+        DebugTeleportTo(clientId, dest, "보스 옆");
+        return;
+    }
+
+    for (const Room& r : dungeon.rooms)
+    {
+        if (r.type != ROOM_TYPE_BOSS) continue;
+        Vec3 dest;
+        if (!RoomCenterStandPos(r.id, dest)) continue;
+        DebugTeleportTo(clientId, dest, "보스 방");
+        return;
+    }
+
+    Log::Warn("[치트] 살아 있는 보스도, 보스 방도 찾지 못함");
+}
+
+// 방 중심에 가장 가까운 바닥 타일 위 좌표.
+// bounds 중심을 그대로 쓰면 기둥/장애물 위에 낄 수 있어서 타일로 스냅한다.
+bool GameSession::RoomCenterStandPos(int roomId, Vec3& out) const
+{
+    const Room* room = nullptr;
+    for (const Room& r : dungeon.rooms)
+        if (r.id == roomId) { room = &r; break; }
+
+    if (!room || room->floorTiles.empty()) return false;
+
+    float cx = (room->bounds.xMin() + room->bounds.xMax()) * 0.5f;
+    float cz = (room->bounds.zMin() + room->bounds.zMax()) * 0.5f;
+
+    const IntVec3* best = nullptr;
+    float bestDistSq = 0.f;
+    for (const IntVec3& t : room->floorTiles)
+    {
+        float dx = (float)t.x - cx;
+        float dz = (float)t.z - cz;
+        float dsq = dx * dx + dz * dz;
+        if (!best || dsq < bestDistSq) { best = &t; bestDistSq = dsq; }
+    }
+    if (!best) return false;
+
+    out = dungeon.TileToStandPosition(*best);
+    return true;
+}
+
+// 서버가 좌표를 옮기고 PLAYER_MOVE로 통보한다. 클라는 이 좌표로 스냅한다.
+void GameSession::DebugTeleportTo(int clientId, const Vec3& dest, const char* label)
+{
     PlayerEntity* p = GetPlayer(clientId);
     if (!p) return;
     if (!p->IsActiveInWorld())
@@ -411,45 +499,11 @@ void GameSession::HandleDebugTeleportExit(int clientId)
         return;
     }
 
-    if (dungeon.exitRoomId < 0)
-    {
-        Log::Warn("[치트] 이 던전에 탈출 방이 없음 (createExitRoom 확인)");
-        return;
-    }
-
-    const Room* exitRoom = nullptr;
-    for (const Room& r : dungeon.rooms)
-        if (r.id == dungeon.exitRoomId) { exitRoom = &r; break; }
-
-    if (!exitRoom || exitRoom->floorTiles.empty())
-    {
-        Log::Warn("[치트] 탈출 방 %d 의 바닥 타일을 찾지 못함", dungeon.exitRoomId);
-        return;
-    }
-
-    // 방 중심에 가장 가까운 바닥 타일 선택
-    float cx = (exitRoom->bounds.xMin() + exitRoom->bounds.xMax()) * 0.5f;
-    float cz = (exitRoom->bounds.zMin() + exitRoom->bounds.zMax()) * 0.5f;
-
-    const IntVec3* best = nullptr;
-    float bestDistSq = 0.f;
-    for (const IntVec3& t : exitRoom->floorTiles)
-    {
-        float dx = (float)t.x - cx;
-        float dz = (float)t.z - cz;
-        float dsq = dx * dx + dz * dz;
-        if (!best || dsq < bestDistSq) { best = &t; bestDistSq = dsq; }
-    }
-    if (!best) return;
-
-    Vec3 dest = dungeon.TileToStandPosition(*best);   // 바닥 위로 올려 놓는다
-
     p->position = dest;
     p->speed = 0.f;
-    p->extractionHoldSec = 0.f;         // 도착 직후부터 홀드 시작
+    p->extractionHoldSec = 0.f;
     p->startPosResendTicks = 10;        // 클라가 놓치지 않도록 재송신 예약
 
-    // 클라에게 즉시 통보 (클라는 이 좌표로 캐릭터를 스냅시킨다)
     if (p->conn && p->conn->active)
     {
         long long ts = duration_cast<milliseconds>(
@@ -466,8 +520,8 @@ void GameSession::HandleDebugTeleportExit(int clientId)
         p->conn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
     }
 
-    Log::Warn("[치트] cid=%d 탈출 방(%d)으로 이동: (%.1f, %.1f, %.1f)",
-        clientId, dungeon.exitRoomId, dest.x, dest.y, dest.z);
+    Log::Warn("[치트] cid=%d %s(으)로 이동: (%.1f, %.1f, %.1f)",
+        clientId, label, dest.x, dest.y, dest.z);
 }
 
 // ============================================================================
@@ -591,10 +645,41 @@ void GameSession::CheckSessionEnd()
     Log::Info("[Session %d] 종료: 전원 탈출/사망 (탈출 %d / 전체 %d)",
         sessionId, survivors, total);
 
-    // 로비에 종료 보고 → 로비가 방 정리 + 클라 상태 복귀.
+    // 플레이어별 전적을 모아 로비로 넘긴다. 로비가 DB에 한 줄씩 넣는다.
+    long long nowMs = duration_cast<milliseconds>(
+        system_clock::now().time_since_epoch()).count();
+
+    std::vector<IpcPlayerResult> results;
+    results.reserve(players.size());
+    for (auto& kv : players)
+    {
+        const PlayerEntity& p = *kv.second;
+        if (p.playerName[0] == '\0') continue;      // 이름 없으면 DB에서 못 찾는다
+
+        IpcPlayerResult r{};
+        std::strncpy(r.playerName, p.playerName, sizeof(r.playerName) - 1);
+        r.extracted = p.extracted ? 1 : 0;
+        r.playSeconds = (p.joinedAtMs > 0)
+            ? (int)((nowMs - p.joinedAtMs) / 1000)
+            : 0;
+        r.monsterKills = p.monsterKills;
+        r.playerKills = p.playerKills;
+        results.push_back(r);
+
+        if ((int)results.size() >= MAX_SESSION_PLAYERS) break;
+    }
+
+    // 로비에 종료 보고 → 로비가 방 정리 + 클라 상태 복귀 + 전적 저장.
     // 실패해도 세션 종료 자체는 진행된다 (LobbyReporter가 경고만 남김).
     if (reporter)
-        reporter->ReportSessionEnded(sessionId, se.reason, total, survivors);
+        reporter->ReportSessionEnded(sessionId, se.reason, total, survivors, results);
+}
+
+void GameSession::AddPlayerKill(int killerClientId)
+{
+    std::lock_guard<std::recursive_mutex> lk(mtx);
+    if (PlayerEntity* killer = GetPlayer(killerClientId))
+        ++killer->playerKills;
 }
 
 PlayerEntity* GameSession::GetPlayer(int clientId)

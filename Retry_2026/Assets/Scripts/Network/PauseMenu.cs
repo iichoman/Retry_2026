@@ -34,6 +34,7 @@ public class PauseMenu : MonoBehaviour
     private Font font;
     private GameObject menuRoot, buttonContainer;
     private Text titleText;
+    private RectTransform boxRect;
     private bool isOpen;
 
     private void Start()
@@ -141,26 +142,47 @@ public class PauseMenu : MonoBehaviour
         bool dead = IsLocalPlayerDead();
         titleText.text = dead ? "사망" : (session ? "메뉴 — 게임 중" : "메뉴");
 
-        if (session)
-            AddButton("로비로 나가기", ColBtnTan, ReturnToLobby);
-        else
-            AddButton("시작 화면으로", ColBtnTan, ReloadToTitle);
+        // 로그인 전이면 지금이 이미 시작 화면이라 "시작 화면으로"는 의미가 없다.
+        bool authed = bootstrap != null && bootstrap.Identity != null
+                      && bootstrap.Identity.IsAuthenticated;
 
-        AddButton("게임 종료", ColBtnDanger, QuitGame);
-        if (!dead) AddButton("계속하기", ColBtn, () => SetMenu(false));   // 사망 시엔 제거
+        int count = 0;
+        if (session) { AddButton("로비로 나가기", ColBtnTan, ReturnToLobby); count++; }
+        else if (authed) { AddButton("시작 화면으로", ColBtnTan, ReloadToTitle); count++; }
+
+        AddButton("게임 종료", ColBtnDanger, QuitGame); count++;
+        if (!dead) { AddButton("계속하기", ColBtn, () => SetMenu(false)); count++; }   // 사망 시엔 제거
+
+        ResizeBox(count);
+    }
+
+    // 버튼 수만큼만 창을 잡는다. 빈 자리가 남지 않게.
+    //   위 여백 84(제목) + 아래 여백 28 + 버튼 56씩 + 사이 간격 14
+    private void ResizeBox(int buttonCount)
+    {
+        if (boxRect == null || buttonCount <= 0) return;
+        float h = 84f + 28f + buttonCount * 56f + (buttonCount - 1) * 14f;
+        boxRect.sizeDelta = new Vector2(400f, h);
     }
 
     // ── 동작 ──
     // 시작 화면으로 들어갈 때 LobbyUI가 읽는 자동 재로그인 플래그/닉네임 (PlayerPrefs)
     public const string PrefAutoLogin = "retry_autologin";
     public const string PrefAutoNick = "retry_autologin_nick";
+    // 인게임 동안 서버가 닉네임을 잠가 둔다. 로비로 돌아올 때 이 ID로 본인임을 증명한다.
+    public const string PrefAutoCid = "retry_autologin_cid";
+    // 세션 후 로비로 돌아올 때 다시 로그인해야 해서 비밀번호도 들고 있는다.
+    public const string PrefAutoPw = "retry_autologin_pw";
 
     // 세션 → 로비: 닉네임을 유지한 채 로비로 복귀.
     // 씬을 새로고침해 인게임 상태를 깨끗이 리셋한 뒤, 저장된 닉네임으로 자동 재로그인 → 로비 Main.
     private void ReturnToLobby()
     {
         string nick = (bootstrap != null && bootstrap.Identity != null) ? bootstrap.Identity.PlayerName : "";
+        int cid = (bootstrap != null && bootstrap.Identity != null) ? bootstrap.Identity.LocalClientId : 0;
         PlayerPrefs.SetString(PrefAutoNick, nick ?? "");
+        PlayerPrefs.SetString(PrefAutoPw, LobbyUI.LastPassword);
+        PlayerPrefs.SetInt(PrefAutoCid, cid);
         PlayerPrefs.SetInt(PrefAutoLogin, 1);
         PlayerPrefs.Save();
         LeaveSession();   // 캐릭터를 세션에서 내보냄
@@ -229,6 +251,7 @@ public class PauseMenu : MonoBehaviour
         var box = New("Box", menuRoot.transform);
         SetRect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200, -160), new Vector2(200, 160));
         box.AddComponent<Image>().color = ColPanel;
+        boxRect = box.GetComponent<RectTransform>();
 
         var titleGo = New("Title", box.transform);
         SetRect(titleGo, new Vector2(0, 1), new Vector2(1, 1), new Vector2(24, -70), new Vector2(-24, -18));

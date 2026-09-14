@@ -32,6 +32,7 @@ constexpr int MAX_PLAYER_NAME = 32;
 constexpr int MAX_ROOM_NAME = 32;
 constexpr int MAX_ROOM_LIST = 50;
 constexpr int MAX_FAIL_REASON = 64;
+constexpr int MAX_PASSWORD = 64;    // 비밀번호(UTF-8 바이트)
 constexpr int MAX_IP_STRING = 16;
 constexpr int MAX_CHAT_TEXT = 128;   // 채팅 1줄 최대 바이트 (UTF-8, 널 포함)
 
@@ -76,6 +77,14 @@ enum class PacketType : int {
     GAME_START_NOTICE = 18,         // S→C: 방 전원에게 "던전 생성 시작" 공지(본문 없음)
     SESSION_START_GAME = 19,        // S→C: 전원 입장 완료 → 동시 시작(본문 없음)
 
+    // ── 계정 (로비, 100번대) ───────────────────────────────────
+    REGISTER_REQUEST = 100,         // C→S: 회원가입
+    REGISTER_RESULT = 101,
+    RESET_PW_REQUEST = 102,         // C→S: 비밀번호 재설정
+    RESET_PW_RESULT = 103,
+    PLAYER_STATS_REQUEST = 104,     // C→S: 내 전적 조회
+    PLAYER_STATS_RESULT = 105,
+
     // ── 인게임: 입력 / 위치 (Session_Manager, 포트 9001) ───────
     PLAYER_INPUT = 20,   // C→S: 입력 + 자칭 위치 (50ms)
     PLAYER_ENTER_VIEW = 21,   // S→C: 시야에 새 플레이어 등장
@@ -116,6 +125,7 @@ enum class PacketType : int {
 
     // ── [디버그 치트] 배포 시 제거 ─────────────────────────────
     DEBUG_TELEPORT_EXIT = 90,   // C→S: 탈출 방으로 이동 요청
+    DEBUG_TELEPORT_BOSS = 91,   // C→S: 보스 방으로 이동 요청
 
     // ── IPC (Retry_Server ↔ Session_Manager, 포트 9002) ───────
     IPC_CREATE_SESSION = 100,
@@ -134,6 +144,12 @@ struct PacketHeader {
 // C→S: 로그인 요청 (DB 없이 이름만으로 식별)
 struct LoginRequest {
     char playerName[MAX_PLAYER_NAME];
+    char password[MAX_PASSWORD];
+    // 인게임에 들어가면 클라가 로비 연결을 끊는다. 그 상태에서 같은 닉네임이
+    // 비어 보이면 남이 가로챌 수 있으므로 서버는 그 이름을 잠가 둔다.
+    // 잠긴 이름의 주인이 로비로 돌아올 때는 자기 clientId를 같이 보내 증명한다.
+    // 0 = 새 로그인.
+    int  reconnectClientId;
 };
 
 // S→C: 로그인 결과
@@ -141,6 +157,28 @@ struct LoginResult {
     int  success;                      // 1=성공, 0=실패
     int  clientId;                     // 서버가 할당한 본인 ID
     char failReason[MAX_FAIL_REASON];
+};
+
+// C→S: 회원가입 / 비밀번호 재설정 (같은 모양)
+struct AccountRequest {
+    char playerName[MAX_PLAYER_NAME];
+    char password[MAX_PASSWORD];
+};
+
+// S→C: 회원가입 / 비밀번호 재설정 결과
+struct AccountResult {
+    int  success;                      // 1=성공
+    char failReason[MAX_FAIL_REASON];
+};
+
+// S→C: 내 전적
+struct PlayerStatsResult {
+    int success;
+    int totalRuns;
+    int totalExtractions;
+    int monsterKills;
+    int playerKills;
+    int bestSeconds;
 };
 
 // C→S: 방 만들기
@@ -415,7 +453,7 @@ struct MonsterDied {
 // ----------------------------------------------------------------------------
 
 // 탈출 성립에 필요한 연속 체류 시간(초). 클라 ExitPortal.holdDuration과 일치해야 함.
-constexpr float EXTRACTION_HOLD_SEC = 7.0f;
+constexpr float EXTRACTION_HOLD_SEC = 3.0f;   // 클라 ExitPotal.prefab의 holdDuration과 같아야 한다
 // 서버 판정 관용치. 네트워크 지연으로 클라가 살짝 먼저 요청해도 통과시킴.
 constexpr float EXTRACTION_HOLD_TOLERANCE = 0.9f;
 
@@ -541,11 +579,24 @@ struct IpcCreateSession {
     char playerNames[MAX_SESSION_PLAYERS][MAX_PLAYER_NAME];
 };
 
+// 세션 종료 시 플레이어 1명의 결과. 로비가 이걸 DB에 한 줄씩 넣는다.
+// clientId가 아니라 이름을 싣는 이유: 세션이 끝날 때쯤엔 이미 접속을 끊은
+// 클라가 있어서 로비의 clientId 매핑을 믿을 수 없다. 닉네임은 DB에서 UNIQUE다.
+struct IpcPlayerResult {
+    char playerName[MAX_PLAYER_NAME];
+    int  extracted;        // 1=탈출 성공
+    int  playSeconds;
+    int  monsterKills;
+    int  playerKills;
+};
+
 struct IpcSessionEnded {
     int sessionId;
     int reason;
     int totalPlayers;
     int survivors;
+    int resultCount;                               // 아래 배열 유효 개수
+    IpcPlayerResult results[MAX_SESSION_PLAYERS];
 };
 
 #pragma pack(pop)

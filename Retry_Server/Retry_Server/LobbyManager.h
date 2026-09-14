@@ -1,11 +1,16 @@
 ﻿#pragma once
+#include "../DB/DbWorker.h"
+
 #include <memory>
+#include <string>
 #include <unordered_map>
 #include <mutex>
+#include <vector>
 
 class ClientConnection;
 class RoomData;
 class SessionDispatcher;
+struct IpcPlayerResult;
 
 // ============================================================================
 //  LobbyManager
@@ -42,7 +47,12 @@ public:
 
     // 세션 매니저가 IPC_SESSION_ENDED로 보고했을 때 호출 (SessionEventReceiver).
     // 해당 세션의 방을 정리하고 아직 남아있는 멤버를 로비 상태로 되돌린다.
-    void OnSessionEnded(int sessionId, int reason, int totalPlayers, int survivors);
+    void OnSessionEnded(int sessionId, int reason, int totalPlayers, int survivors,
+        const IpcPlayerResult* results, int resultCount);
+
+    // DB 워커 시작/종료. Main에서 호출.
+    bool StartDb();
+    void StopDb();
 
     // 정상 종료. 모든 클라/방 정리.
     void Shutdown();
@@ -60,6 +70,27 @@ private:
     int  nextPendingId;
 
     SessionDispatcher* dispatcher;
+    DbWorker           db;
+
+    // DB 조회가 끝난 뒤 로그인을 마무리한다. DB 스레드에서 호출됨.
+    void FinishLogin(int pendingId, const std::string& nickname,
+        int dbPlayerId, int reconnectClientId);
+    // 회원가입 / 비밀번호 재설정 / 전적 조회 (전부 비동기)
+    void HandleRegister(ClientConnection* conn, const char* body, int bodySize);
+    void HandleResetPassword(ClientConnection* conn, const char* body, int bodySize);
+    void HandlePlayerStats(ClientConnection* conn);
+    // pendingId 또는 clientId로 아직 살아있는 커넥션을 찾아 결과를 보낸다.
+    // DB 스레드에서 호출용 (안에서 mtx를 잡는다)
+    void SendAccountResult(int connKey, bool success, const char* reason, int packetType);
+    // 이미 mtx를 쥔 상태에서 호출용. mtx는 재귀 락이 아니라 반드시 구분해야 한다.
+    void SendAccountResultLocked(int connKey, bool success, const char* reason, int packetType);
+    // 그 닉네임을 지금 누가 쓰고 있는지 (mtx 잠긴 상태에서 호출).
+    //  - 로비에 접속해 있으면 사용 중
+    //  - 인게임(ST_STARTING)이면 잠긴 상태. 단 reconnectClientId가 본인이면 통과.
+    // 반환 true = 거부해야 함.
+    bool IsNicknameTaken(const char* nickname, int reconnectClientId) const;
+    // 세션이 끝난 뒤 그 방 멤버들의 닉네임 잠금을 푼다.
+    void ReleaseNameLocks(const std::vector<int>& memberIds);
 
     // 패킷 핸들러들 (mtx 잠긴 상태에서 호출됨)
     void HandleLogin(ClientConnection* conn, const char* body, int bodySize);
@@ -75,6 +106,8 @@ private:
     void HandleRoomReady(ClientConnection* conn);
 
     // 서버가 만든 [시스템] 알림. 방 전원 또는 특정 1인에게.
+    // SESSION_ASSIGN에 넣을 세션 서버 IP를 그 클라 기준으로 구한다.
+    void ResolveSessionServerIP(ClientConnection* conn, char* out, int outSize);
     void SendSystemToRoom(RoomData* room, const char* text);
     void SendSystemTo(ClientConnection* conn, const char* text);
 

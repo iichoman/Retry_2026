@@ -168,7 +168,12 @@ public class DungeonExitManager : MonoBehaviour
             ? bootstrap.Identity.PlayerName
             : string.Empty;
 
+        int cid = (bootstrap != null && bootstrap.Identity != null)
+            ? bootstrap.Identity.LocalClientId : 0;
+
         PlayerPrefs.SetString(PauseMenu.PrefAutoNick, nick ?? string.Empty);
+        PlayerPrefs.SetString(PauseMenu.PrefAutoPw, LobbyUI.LastPassword);
+        PlayerPrefs.SetInt(PauseMenu.PrefAutoCid, cid);
         PlayerPrefs.SetInt(PauseMenu.PrefAutoLogin, 1);
         PlayerPrefs.Save();
 
@@ -296,6 +301,12 @@ public class DungeonExitManager : MonoBehaviour
 
         return result;
     }
+
+    // 서버가 "이건 네가 잡았다"고 알려줄 때 쓰는 경로.
+    // 몬스터/플레이어 사망은 전부 서버가 판정하고 MonsterDied/PlayerDied로 내려온다.
+    // 로컬 Monster_State.Die()는 네트워크 플레이에서 호출되지 않아 집계가 0이었다.
+    public void RegisterNetworkMonsterKill() => monsterKillCount++;
+    public void RegisterNetworkPlayerKill() => playerKillCount++;
 
     public void RegisterMonsterKill(GameObject attacker)
     {

@@ -72,10 +72,7 @@ void DungeonGenerator::Generate(int seed)
     BuildBossRooms(random);
     AssignExitRoom(random);   // 클라와 동일 시점. RNG 1회 소비 → 생략 시 이후 전부 desync
 
-    floorTiles.clear();
-    wallTiles.clear();
-    ceilingTiles.clear();
-    solidTiles.clear();
+    ResetTileBitmaps();
 
     BuildCorridors(root.get(), random);
     ConnectBossRoomsToDungeon(random);
@@ -88,9 +85,23 @@ void DungeonGenerator::Generate(int seed)
     // 포탈 그래프 구성 (방+복도 노드 + 인접 관계)
     BuildNodeGraph();
 
-    Log::Info("[Dungeon] 생성 완료: rooms=%d corridors=%d floor=%d wall=%d solid=%d",
+    // 생성이 끝나면 더 이상 안 쓰는 중간 집합을 즉시 버린다.
+    //  - corridor.floorTiles : AddCorridorTiles / BuildNodeGraph 까지만 사용
+    //  - room.blockedTiles   : BuildWallsAndCeiling 까지만 사용
+    //  - room.doorwayFloorTiles : 복도 연결 중에만 사용
+    // room.floorTiles는 남긴다(몬스터 스폰, 탈출 방 좌표 계산에 필요).
+    for (Corridor& c : corridors)
+        std::unordered_set<IntVec3>().swap(c.floorTiles);
+    for (Room& r : rooms)
+    {
+        std::unordered_set<IntVec3>().swap(r.blockedTiles);
+        std::unordered_set<IntVec3>().swap(r.doorwayFloorTiles);
+    }
+
+    Log::Info("[Dungeon] 생성 완료: rooms=%d corridors=%d floor=%d wall=%d ceiling=%d (타일맵 %.1fMB)",
         (int)rooms.size(), (int)corridors.size(),
-        (int)floorTiles.size(), (int)wallTiles.size(), (int)solidTiles.size());
+        (int)floorTiles.size(), (int)wallTiles.size(), (int)ceilingTiles.size(),
+        (floorTiles.MemoryBytes() + wallTiles.MemoryBytes() + ceilingTiles.MemoryBytes()) / 1048576.0);
 }
 
 // ============================================================================
@@ -668,19 +679,19 @@ void DungeonGenerator::AddCorridorTiles()
 {
     for (const Corridor& c : corridors)
         for (const IntVec3& t : c.floorTiles)
-            floorTiles.insert(t);
+            floorTiles.Insert(t);
 }
 
 void DungeonGenerator::AddBoundsTiles(const IntBounds& bounds)
 {
     for (int x = bounds.xMin(); x < bounds.xMax(); x++)
         for (int z = bounds.zMin(); z < bounds.zMax(); z++)
-            floorTiles.insert(IntVec3(x, 0, z));
+            floorTiles.Insert(IntVec3(x, 0, z));
 }
 
 void DungeonGenerator::AddRoomFloorTiles(const Room& room)
 {
-    for (const IntVec3& t : room.floorTiles) floorTiles.insert(t);
+    for (const IntVec3& t : room.floorTiles) floorTiles.Insert(t);
 }
 
 // ============================================================================
@@ -898,24 +909,34 @@ void DungeonGenerator::GetShapeScale(RoomShape shape, float& outX, float& outY)
 //  벽/천장 생성
 // ============================================================================
 
+// 비트맵은 격자 크기를 알아야 잡을 수 있다. y는 천장(mapHeight) 한 칸 위까지.
+void DungeonGenerator::ResetTileBitmaps()
+{
+    int ySize = Mathf_Max(1, mapHeight) + 2;
+    floorTiles.Reset(mapSize, ySize, mapSize);
+    wallTiles.Reset(mapSize, ySize, mapSize);
+    ceilingTiles.Reset(mapSize, ySize, mapSize);
+}
+
 void DungeonGenerator::BuildWallsAndCeiling()
 {
     int ceilingY = Mathf_Max(1, mapHeight);
 
-    // 바닥 → 천장 + 인접한 floor 아닌 칸에 벽
-    for (const IntVec3& floor : floorTiles)
-    {
-        ceilingTiles.insert(IntVec3(floor.x, ceilingY, floor.z));
-
-        for (const IntVec3& d : HorizontalDirections)
+    // 바닥 → 천장 + 인접한 floor 아닌 칸에 벽.
+    // 순회 순서가 바뀌어도 결과는 같다(결과 집합에 넣기만 하고 RNG를 안 쓴다).
+    floorTiles.ForEach([&](const IntVec3& floor)
         {
-            IntVec3 nf(floor.x + d.x, floor.y + d.y, floor.z + d.z);
-            if (floorTiles.count(nf)) continue;
+            ceilingTiles.Insert(IntVec3(floor.x, ceilingY, floor.z));
 
-            for (int y = 0; y < ceilingY + 1; y++)
-                wallTiles.insert(IntVec3(nf.x, y, nf.z));
-        }
-    }
+            for (const IntVec3& d : HorizontalDirections)
+            {
+                IntVec3 nf(floor.x + d.x, floor.y + d.y, floor.z + d.z);
+                if (floorTiles.Test(nf)) continue;
+
+                for (int y = 0; y < ceilingY + 1; y++)
+                    wallTiles.Insert(IntVec3(nf.x, y, nf.z));
+            }
+        });
 
     // 방 내부 blocked 타일도 벽으로
     for (const Room& room : rooms)
@@ -923,14 +944,11 @@ void DungeonGenerator::BuildWallsAndCeiling()
         for (const IntVec3& bt : room.blockedTiles)
         {
             for (int y = 0; y < ceilingY + 1; y++)
-                wallTiles.insert(IntVec3(bt.x, y, bt.z));
+                wallTiles.Insert(IntVec3(bt.x, y, bt.z));
         }
     }
-
-    // solid = floor + wall + ceiling (충돌/시야 검증 통합 집합)
-    for (const IntVec3& t : floorTiles)   solidTiles.insert(t);
-    for (const IntVec3& t : wallTiles)    solidTiles.insert(t);
-    for (const IntVec3& t : ceilingTiles) solidTiles.insert(t);
+    // solidTiles는 따로 담지 않는다. floor|wall|ceiling 중복일 뿐이라
+    // 메모리를 두 배로 쓰던 원인이었다. IsSolidTile이 세 개를 합쳐서 본다.
 }
 
 // ============================================================================
@@ -976,17 +994,18 @@ IntVec3 DungeonGenerator::WorldToTile(const Vec3& worldPos) const
 
 bool DungeonGenerator::IsFloorTile(const IntVec3& tile) const
 {
-    return floorTiles.count(tile) > 0;
+    return floorTiles.Test(tile);
 }
 
 bool DungeonGenerator::IsWallTile(const IntVec3& tile) const
 {
-    return wallTiles.count(tile) > 0;
+    return wallTiles.Test(tile);
 }
 
 bool DungeonGenerator::IsSolidTile(const IntVec3& tile) const
 {
-    return solidTiles.count(tile) > 0;
+    // 예전 solidTiles 집합과 같은 의미. 따로 저장하지 않고 세 개를 합쳐 본다.
+    return floorTiles.Test(tile) || wallTiles.Test(tile) || ceilingTiles.Test(tile);
 }
 
 // ============================================================================

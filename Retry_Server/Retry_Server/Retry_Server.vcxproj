@@ -142,6 +142,8 @@
     <ClCompile Include="NetworkAcceptor.cpp" />
     <ClCompile Include="RoomData.cpp" />
     <ClCompile Include="SessionDispatcher.cpp" />
+    <ClCompile Include="..\DB\OdbcSession.cpp" />
+    <ClCompile Include="..\DB\DbWorker.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="SessionEventReceiver.h" />
@@ -150,6 +152,9 @@
     <ClInclude Include="NetworkAcceptor.h" />
     <ClInclude Include="RoomData.h" />
     <ClInclude Include="SessionDispatcher.h" />
+    <ClInclude Include="..\DB\OdbcSession.h" />
+    <ClInclude Include="..\DB\DbWorker.h" />
+    <ClInclude Include="..\DB\DbConfig.h" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\Common\Common.vcxproj">

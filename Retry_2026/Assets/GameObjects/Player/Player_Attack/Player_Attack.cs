@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -91,6 +91,12 @@ public class Player_Attack : MonoBehaviour
 
         if (attackPressedThisFrame)
         {
+            // 스태미나가 모자라면 입력 자체를 무시한다(콤보 예약도 안 걸린다).
+            // 실제 차감은 모션이 시작될 때(NotifyAttackAnimationStarted) 한 번만 한다.
+            // 여기서 깎으면 쿨다운/콤보창 때문에 씹힌 입력까지 전부 깎여
+            // 4타 치는 데 30 가까이 날아간다.
+            if (PlayerStamina.Local != null && !PlayerStamina.Local.CanAttack) return;
+
             if (ActiveAnimationComboIndex <= 0 && equippedWeapon is not Weapon_Gun)
             {
                 FaceCameraForward();
@@ -148,6 +154,9 @@ public class Player_Attack : MonoBehaviour
 
     public void NotifyAttackAnimationStarted(int comboIndex)
     {
+        // 한 번 휘두를 때마다 정확히 1회. 콤보로 이어진 2·3·4타도 여기를 지난다.
+        PlayerStamina.Local?.SpendAttack();
+
         ActiveAnimationComboIndex = comboIndex;
         cameraAction?.BeginComboAttack(comboIndex);
         equippedWeapon?.OnAnimationStarted(comboIndex);

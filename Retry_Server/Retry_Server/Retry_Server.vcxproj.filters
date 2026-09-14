@@ -36,6 +36,12 @@
     <ClCompile Include="SessionEventReceiver.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
+    <ClCompile Include="..\DB\DbWorker.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="..\DB\OdbcSession.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ClientConnection.h">
@@ -54,6 +60,15 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="SessionEventReceiver.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="..\DB\DbConfig.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="..\DB\DbWorker.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="..\DB\OdbcSession.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>

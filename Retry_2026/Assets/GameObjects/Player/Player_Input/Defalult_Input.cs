@@ -94,7 +94,9 @@ public class Defalult_Input : MonoBehaviour
 
     public Vector2 Move => IsGameplayInputEnabled ? moveInput : Vector2.zero;
     public Vector2 Look => IsGameplayInputEnabled ? lookInput : Vector2.zero;
-    public bool Sprint => IsGameplayInputEnabled && sprint;
+    // 스태미나가 0이면 달릴 수 없다.
+    public bool Sprint => IsGameplayInputEnabled && sprint
+        && (PlayerStamina.Local == null || PlayerStamina.Local.CanSprint);
     public bool Crouch => IsGameplayInputEnabled && crouch;
 
     public void OnMove(InputAction.CallbackContext context)

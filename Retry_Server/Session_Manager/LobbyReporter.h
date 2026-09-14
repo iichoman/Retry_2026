@@ -1,5 +1,8 @@
 ﻿#pragma once
+#include "../Common/PacketProtocol.h"
+
 #include <string>
+#include <vector>
 
 // ============================================================================
 //  LobbyReporter
@@ -23,7 +26,8 @@ public:
     // 세션 종료 보고. 응답을 기다리지 않는 fire-and-forget.
     // 반환: 송신 성공 여부 (실패해도 호출자는 종료를 계속 진행할 것).
     bool ReportSessionEnded(int sessionId, int reason,
-        int totalPlayers, int survivors);
+        int totalPlayers, int survivors,
+        const std::vector<IpcPlayerResult>& results);
 
 private:
     std::string ip;

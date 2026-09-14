@@ -117,10 +117,41 @@ public class LobbyClient
 
     // ── 송신 헬퍼 ────────────────────────────────────────────────────────
 
-    public void SendLogin(string playerName)
+    public void SendLogin(string playerName, string password, int reconnectClientId = 0)
     {
-        var req = new LoginRequest { playerName = NameCodec.Encode(playerName ?? "Player", 32) };
+        var req = new LoginRequest
+        {
+            playerName = NameCodec.Encode(playerName ?? "Player", 32),
+            password = NameCodec.Encode(password ?? "", 64),
+            reconnectClientId = reconnectClientId,
+        };
         SendStruct(PacketType.LOGIN_REQUEST, req);
+    }
+
+    /// <summary>회원가입. 결과는 REGISTER_RESULT로 온다.</summary>
+    public void SendRegister(string playerName, string password)
+    {
+        SendStruct(PacketType.REGISTER_REQUEST, new AccountRequest
+        {
+            playerName = NameCodec.Encode(playerName ?? "", 32),
+            password = NameCodec.Encode(password ?? "", 64),
+        });
+    }
+
+    /// <summary>비밀번호 재설정. 결과는 RESET_PW_RESULT로 온다.</summary>
+    public void SendResetPassword(string playerName, string password)
+    {
+        SendStruct(PacketType.RESET_PW_REQUEST, new AccountRequest
+        {
+            playerName = NameCodec.Encode(playerName ?? "", 32),
+            password = NameCodec.Encode(password ?? "", 64),
+        });
+    }
+
+    /// <summary>내 전적 조회. 결과는 PLAYER_STATS_RESULT로 온다.</summary>
+    public void SendStatsRequest()
+    {
+        SendBytes(PacketIO.MakeEmptyPacket(PacketType.PLAYER_STATS_REQUEST));
     }
 
     public void SendRoomCreate(string roomName)

@@ -5,6 +5,9 @@
 #include "../Common/PacketProtocol.h"
 #include "../Common/Logger.h"
 
+#include <WS2tcpip.h>   // inet_ntop
+
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -104,6 +107,15 @@ void LobbyManager::HandlePacket(ClientConnection* conn, int packetType,
     case PacketType::ROOM_READY_REQUEST:
         HandleRoomReady(conn);
         break;
+    case PacketType::REGISTER_REQUEST:
+        HandleRegister(conn, body, bodySize);
+        break;
+    case PacketType::RESET_PW_REQUEST:
+        HandleResetPassword(conn, body, bodySize);
+        break;
+    case PacketType::PLAYER_STATS_REQUEST:
+        HandlePlayerStats(conn);
+        break;
     default:
         Log::Warn("로비에서 알 수 없는 패킷 type=%d from clientId=%d",
             packetType, conn->clientId);
@@ -130,39 +142,347 @@ void LobbyManager::HandleLogin(ClientConnection* conn, const char* body, int bod
 
     const LoginRequest* req = reinterpret_cast<const LoginRequest*>(body);
 
-    // 새 clientId 할당, 인증된 맵으로 이동
-    int newId = nextClientId++;
-    std::strncpy(conn->playerName, req->playerName, sizeof(conn->playerName) - 1);
-    conn->playerName[sizeof(conn->playerName) - 1] = '\0';
-    conn->clientId = newId;
-    conn->state = ClientConnection::ST_AUTHENTICATED;
+    char nick[MAX_PLAYER_NAME];
+    std::strncpy(nick, req->playerName, sizeof(nick) - 1);
+    nick[sizeof(nick) - 1] = '\0';
 
-    // pending → authenticated 이동
-    std::unique_ptr<ClientConnection> moved;
-    for (auto it = pendingClients.begin(); it != pendingClients.end(); ++it)
+    auto fail = [&](const char* why)
     {
-        if (it->second.get() == conn)
-        {
-            moved = std::move(it->second);
-            pendingClients.erase(it);
-            break;
-        }
+        LoginResult res{};
+        res.success = 0;
+        res.clientId = 0;
+        std::strncpy(res.failReason, why, sizeof(res.failReason) - 1);
+        conn->SendPacket((int)PacketType::LOGIN_RESULT, &res, sizeof(res));
+        Log::Info("로그인 거부: name=%s (%s)", nick, why);
+    };
+
+    if (nick[0] == '\0') { fail("닉네임을 입력하세요."); return; }
+
+    // 같은 닉네임으로 이미 접속해 있으면 거부. (DB의 UNIQUE는 계정 중복을 막고,
+    //  이 검사는 같은 계정으로 동시 접속하는 것을 막는다)
+    if (IsNicknameTaken(nick, req->reconnectClientId))
+    {
+        fail("이미 접속 중인 닉네임입니다."); return;
     }
-    if (!moved)
+
+    // pendingClients의 키를 찾아 둔다. DB 응답이 돌아왔을 때 이 키로 다시 찾는다.
+    // 포인터를 들고 있으면 그 사이 연결이 끊겨 삭제됐을 때 위험하다.
+    int pendingId = 0;
+    for (auto& kv : pendingClients)
+    {
+        if (kv.second.get() == conn) { pendingId = kv.first; break; }
+    }
+    if (pendingId == 0)
     {
         Log::Error("LOGIN: pending에서 클라 못 찾음");
         return;
     }
+
+    // DB 조회는 수 ms가 걸린다. IOCP 스레드를 잡아두면 안 되므로 큐에 넘기고
+    // 즉시 반환한다. 응답은 FinishLogin이 보낸다.
+    char pw[MAX_PASSWORD];
+    std::strncpy(pw, req->password, sizeof(pw) - 1);
+    pw[sizeof(pw) - 1] = '\0';
+
+    std::string nickStr(nick);
+    std::string pwStr(pw);
+    int reconnectCid = req->reconnectClientId;
+
+    db.RequestLogin(nickStr, pwStr,
+        [this, pendingId, nickStr, reconnectCid](int result, int playerId)
+        {
+            if (result == 1) { SendAccountResult(pendingId, false,
+                "존재하지 않는 닉네임입니다.", (int)PacketType::LOGIN_RESULT); return; }
+            if (result == 2) { SendAccountResult(pendingId, false,
+                "비밀번호가 올바르지 않습니다.", (int)PacketType::LOGIN_RESULT); return; }
+            // result 0 = 성공, -1 = DB 없음(그냥 통과)
+            FinishLogin(pendingId, nickStr, playerId, reconnectCid);
+        });
+}
+
+// DB 조회 완료 후 로그인 마무리. DB 워커 스레드에서 호출된다.
+void LobbyManager::FinishLogin(int pendingId, const std::string& nickname,
+    int dbPlayerId, int reconnectClientId)
+{
+    std::lock_guard<std::mutex> lk(mtx);
+
+    auto it = pendingClients.find(pendingId);
+    if (it == pendingClients.end()) return;          // 그 사이 접속이 끊겼다
+
+    ClientConnection* conn = it->second.get();
+    if (!conn || !conn->active.load()) return;
+    if (conn->state != ClientConnection::ST_CONNECTED) return;
+
+    // DB를 기다리는 동안 같은 닉네임이 먼저 들어왔을 수 있다.
+    if (IsNicknameTaken(nickname.c_str(), reconnectClientId))
+    {
+        LoginResult res{};
+        res.success = 0;
+        std::strncpy(res.failReason, "이미 접속 중인 닉네임입니다.",
+            sizeof(res.failReason) - 1);
+        conn->SendPacket((int)PacketType::LOGIN_RESULT, &res, sizeof(res));
+        return;
+    }
+
+    // 주인이 돌아온 경우: 예전 커넥션의 잠금을 먼저 푼다.
+    if (reconnectClientId != 0)
+    {
+        auto old = authenticatedClients.find(reconnectClientId);
+        if (old != authenticatedClients.end() && old->second &&
+            !old->second->active.load() &&
+            std::strcmp(old->second->playerName, nickname.c_str()) == 0)
+        {
+            old->second->state = ClientConnection::ST_CONNECTED;
+            old->second->startingAtMs = 0;
+        }
+    }
+
+    int newId = nextClientId++;
+    std::strncpy(conn->playerName, nickname.c_str(), sizeof(conn->playerName) - 1);
+    conn->playerName[sizeof(conn->playerName) - 1] = '\0';
+    conn->clientId = newId;
+    conn->dbPlayerId = dbPlayerId;
+    conn->state = ClientConnection::ST_AUTHENTICATED;
+
+    std::unique_ptr<ClientConnection> moved = std::move(it->second);
+    pendingClients.erase(it);
     authenticatedClients[newId] = std::move(moved);
 
-    // 응답
-    LoginResult res;
-    std::memset(&res, 0, sizeof(res));
+    LoginResult res{};
     res.success = 1;
     res.clientId = newId;
     conn->SendPacket((int)PacketType::LOGIN_RESULT, &res, sizeof(res));
 
-    Log::Info("로그인: id=%d name=%s", newId, conn->playerName);
+    Log::Info("로그인: id=%d name=%s dbPlayerId=%d", newId, conn->playerName, dbPlayerId);
+}
+
+// 닉네임 잠금 유효 시간. 세션 종료 보고가 유실돼도 이 시간이 지나면 풀린다.
+static constexpr long long NAME_LOCK_TIMEOUT_MS = 30 * 60 * 1000;   // 30분
+
+static long long NowMs()
+{
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
+}
+
+bool LobbyManager::IsNicknameTaken(const char* nickname, int reconnectClientId) const
+{
+    if (!nickname || !*nickname) return false;
+
+    const long long now = NowMs();
+
+    for (const auto& kv : authenticatedClients)
+    {
+        const ClientConnection* c = kv.second.get();
+        if (!c) continue;
+        if (std::strcmp(c->playerName, nickname) != 0) continue;
+
+        // (1) 로비에 붙어 있다 → 확실히 사용 중
+        if (c->active.load()) return true;
+
+        // (2) 인게임에 들어가느라 로비 연결만 끊은 상태.
+        //     연결은 죽었지만 객체는 남아 있어서 이름을 잠가 둘 수 있다.
+        if (c->state == ClientConnection::ST_STARTING)
+        {
+            if (kv.first == reconnectClientId) return false;   // 주인이 돌아왔다
+            if (c->startingAtMs > 0 &&
+                now - c->startingAtMs > NAME_LOCK_TIMEOUT_MS)
+                return false;                                   // 잠금 만료
+            return true;
+        }
+        // (3) 그냥 나간 연결 → 잠글 이유 없음
+    }
+    return false;
+}
+
+void LobbyManager::ReleaseNameLocks(const std::vector<int>& memberIds)
+{
+    for (int cid : memberIds)
+    {
+        auto it = authenticatedClients.find(cid);
+        if (it == authenticatedClients.end()) continue;
+
+        ClientConnection* c = it->second.get();
+        if (!c || c->active.load()) continue;          // 살아있으면 건드리지 않는다
+
+        if (c->state == ClientConnection::ST_STARTING)
+        {
+            // 객체를 erase하면 IOCP의 지연 완료와 겹쳐 위험하다.
+            // 상태만 되돌려 잠금을 푼다. 실제 정리는 Shutdown에서.
+            c->state = ClientConnection::ST_CONNECTED;
+            c->startingAtMs = 0;
+        }
+    }
+}
+
+bool LobbyManager::StartDb()
+{
+    return db.Start();
+}
+
+void LobbyManager::StopDb()
+{
+    db.Stop();
+}
+
+// ============================================================================
+//  핸들러: 계정 (회원가입 / 비밀번호 재설정 / 전적)
+// ============================================================================
+
+// 결과 패킷을 보낸다. connKey가 음수면 pendingClients(인증 전), 양수면 authenticated.
+// DB 스레드에서 호출되므로 그 사이 끊겼을 수 있어 매번 다시 찾는다.
+void LobbyManager::SendAccountResult(int connKey, bool success,
+    const char* reason, int packetType)
+{
+    std::lock_guard<std::mutex> lk(mtx);
+    SendAccountResultLocked(connKey, success, reason, packetType);
+}
+
+void LobbyManager::SendAccountResultLocked(int connKey, bool success,
+    const char* reason, int packetType)
+{
+    ClientConnection* conn = nullptr;
+    if (connKey < 0)
+    {
+        auto it = pendingClients.find(connKey);
+        if (it != pendingClients.end()) conn = it->second.get();
+    }
+    else
+    {
+        auto it = authenticatedClients.find(connKey);
+        if (it != authenticatedClients.end()) conn = it->second.get();
+    }
+    if (!conn || !conn->active.load()) return;
+
+    if (packetType == (int)PacketType::LOGIN_RESULT)
+    {
+        LoginResult res{};
+        res.success = success ? 1 : 0;
+        res.clientId = 0;
+        if (reason) std::strncpy(res.failReason, reason, sizeof(res.failReason) - 1);
+        conn->SendPacket(packetType, &res, sizeof(res));
+    }
+    else
+    {
+        AccountResult res{};
+        res.success = success ? 1 : 0;
+        if (reason) std::strncpy(res.failReason, reason, sizeof(res.failReason) - 1);
+        conn->SendPacket(packetType, &res, sizeof(res));
+    }
+}
+
+// 인증 전 커넥션의 임시 키를 찾는다. (mtx 잠긴 상태에서 호출)
+static int FindPendingKey(
+    const std::unordered_map<int, std::unique_ptr<ClientConnection>>& pending,
+    const ClientConnection* conn)
+{
+    for (const auto& kv : pending)
+        if (kv.second.get() == conn) return kv.first;
+    return 0;
+}
+
+void LobbyManager::HandleRegister(ClientConnection* conn, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(AccountRequest)) return;
+    const AccountRequest* req = reinterpret_cast<const AccountRequest*>(body);
+
+    char nick[MAX_PLAYER_NAME], pw[MAX_PASSWORD];
+    std::strncpy(nick, req->playerName, sizeof(nick) - 1); nick[sizeof(nick) - 1] = '\0';
+    std::strncpy(pw, req->password, sizeof(pw) - 1);       pw[sizeof(pw) - 1] = '\0';
+
+    int key = (conn->clientId > 0) ? conn->clientId
+        : FindPendingKey(pendingClients, conn);
+    if (key == 0) return;
+
+    if (nick[0] == '\0' || pw[0] == '\0')
+    {
+        SendAccountResultLocked(key, false, "닉네임과 비밀번호를 입력하세요.",
+            (int)PacketType::REGISTER_RESULT);
+        return;
+    }
+
+    db.RequestRegister(std::string(nick), std::string(pw),
+        [this, key](int result)
+        {
+            if (result == 0)
+                SendAccountResult(key, true, "", (int)PacketType::REGISTER_RESULT);
+            else if (result == 1)
+                SendAccountResult(key, false, "이미 존재하는 닉네임입니다.",
+                    (int)PacketType::REGISTER_RESULT);
+            else
+                SendAccountResult(key, false, "서버 DB에 연결할 수 없습니다.",
+                    (int)PacketType::REGISTER_RESULT);
+        });
+}
+
+void LobbyManager::HandleResetPassword(ClientConnection* conn, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(AccountRequest)) return;
+    const AccountRequest* req = reinterpret_cast<const AccountRequest*>(body);
+
+    char nick[MAX_PLAYER_NAME], pw[MAX_PASSWORD];
+    std::strncpy(nick, req->playerName, sizeof(nick) - 1); nick[sizeof(nick) - 1] = '\0';
+    std::strncpy(pw, req->password, sizeof(pw) - 1);       pw[sizeof(pw) - 1] = '\0';
+
+    int key = (conn->clientId > 0) ? conn->clientId
+        : FindPendingKey(pendingClients, conn);
+    if (key == 0) return;
+
+    if (nick[0] == '\0' || pw[0] == '\0')
+    {
+        SendAccountResultLocked(key, false, "닉네임과 새 비밀번호를 입력하세요.",
+            (int)PacketType::RESET_PW_RESULT);
+        return;
+    }
+
+    // 지금 그 계정으로 접속해 있으면 바꾸지 못하게 막는다.
+    if (IsNicknameTaken(nick, 0))
+    {
+        SendAccountResultLocked(key, false, "접속 중인 계정은 변경할 수 없습니다.",
+            (int)PacketType::RESET_PW_RESULT);
+        return;
+    }
+
+    db.RequestResetPassword(std::string(nick), std::string(pw),
+        [this, key](int result)
+        {
+            if (result == 0)
+                SendAccountResult(key, true, "", (int)PacketType::RESET_PW_RESULT);
+            else if (result == 1)
+                SendAccountResult(key, false, "존재하지 않는 닉네임입니다.",
+                    (int)PacketType::RESET_PW_RESULT);
+            else
+                SendAccountResult(key, false, "서버 DB에 연결할 수 없습니다.",
+                    (int)PacketType::RESET_PW_RESULT);
+        });
+}
+
+void LobbyManager::HandlePlayerStats(ClientConnection* conn)
+{
+    if (conn->state == ClientConnection::ST_CONNECTED) return;   // 인증 후에만
+    int cid = conn->clientId;
+    if (cid <= 0) return;
+
+    std::string nick(conn->playerName);
+
+    db.RequestStats(nick,
+        [this, cid](bool ok, DbWorker::Stats s)
+        {
+            std::lock_guard<std::mutex> lk(mtx);
+            auto it = authenticatedClients.find(cid);
+            if (it == authenticatedClients.end()) return;
+            ClientConnection* c = it->second.get();
+            if (!c || !c->active.load()) return;
+
+            PlayerStatsResult res{};
+            res.success = ok ? 1 : 0;
+            res.totalRuns = s.runs;
+            res.totalExtractions = s.extractions;
+            res.monsterKills = s.monsterKills;
+            res.playerKills = s.playerKills;
+            res.bestSeconds = s.bestSeconds;
+            c->SendPacket((int)PacketType::PLAYER_STATS_RESULT, &res, sizeof(res));
+        });
 }
 
 // ============================================================================
@@ -352,21 +672,24 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
         return;
     }
 
-    // 모든 멤버에게 SESSION_ASSIGN 송신
-    SessionAssignData assign{};
-    assign.sessionId = sessionId;
-    assign.mapSeed = mapSeed;
-    assign.sessionServerPort = 9001;
-    std::strncpy(assign.sessionServerIP, "127.0.0.1", sizeof(assign.sessionServerIP) - 1);
-
+    // 모든 멤버에게 SESSION_ASSIGN 송신.
+    // 세션 서버 주소는 "그 클라가 실제로 접속해 들어온 서버 IP"를 그대로 돌려준다.
+    // 127.0.0.1로 고정하면 다른 PC에서 접속한 클라가 자기 자신에게 붙으려다 실패한다.
+    // (같은 PC면 getsockname이 127.0.0.1을 주므로 기존 동작과 동일하다)
     for (int memberId : playerIds)
     {
         ClientConnection* mc = GetClient(memberId);
-        if (mc)
-        {
-            mc->SendPacket((int)PacketType::SESSION_ASSIGN, &assign, sizeof(assign));
-            mc->state = ClientConnection::ST_STARTING;
-        }
+        if (!mc) continue;
+
+        SessionAssignData assign{};
+        assign.sessionId = sessionId;
+        assign.mapSeed = mapSeed;
+        assign.sessionServerPort = 9001;
+        ResolveSessionServerIP(mc, assign.sessionServerIP, sizeof(assign.sessionServerIP));
+
+        mc->SendPacket((int)PacketType::SESSION_ASSIGN, &assign, sizeof(assign));
+        mc->state = ClientConnection::ST_STARTING;
+        mc->startingAtMs = NowMs();      // 여기서부터 닉네임이 잠긴다
     }
 
     // 세션 종료 보고(IPC_SESSION_ENDED)를 받았을 때 어느 방인지 찾기 위해 기록.
@@ -385,6 +708,31 @@ void LobbyManager::HandleGameStart(ClientConnection* conn)
 //  채팅과 같은 패킷을 쓰되 채널을 CHAT_SYSTEM으로 보낸다.
 //  클라는 이 채널을 발신자 없이 노란색 [시스템] 줄로 그린다.
 // ============================================================================
+
+// 이 클라가 접속해 들어온 쪽의 서버 IP를 문자열로 채운다.
+// 로컬이면 127.0.0.1, LAN이면 192.168.x.x 가 그대로 나온다.
+void LobbyManager::ResolveSessionServerIP(ClientConnection* conn, char* out, int outSize)
+{
+    if (!out || outSize <= 0) return;
+    out[0] = '\0';
+
+    sockaddr_in local{};
+    int len = (int)sizeof(local);
+    if (conn && conn->socket != INVALID_SOCKET &&
+        getsockname(conn->socket, (sockaddr*)&local, &len) == 0)
+    {
+        char buf[INET_ADDRSTRLEN] = {};
+        if (inet_ntop(AF_INET, &local.sin_addr, buf, sizeof(buf)) != nullptr &&
+            buf[0] != '\0' && std::strcmp(buf, "0.0.0.0") != 0)
+        {
+            std::strncpy(out, buf, outSize - 1);
+            out[outSize - 1] = '\0';
+            return;
+        }
+    }
+    std::strncpy(out, "127.0.0.1", outSize - 1);   // 못 구하면 기존 동작
+    out[outSize - 1] = '\0';
+}
 
 void LobbyManager::SendSystemToRoom(RoomData* room, const char* text)
 {
@@ -508,12 +856,24 @@ void LobbyManager::HandleChat(ClientConnection* conn, const char* body, int body
 // ============================================================================
 
 void LobbyManager::OnSessionEnded(int sessionId, int reason,
-    int totalPlayers, int survivors)
+    int totalPlayers, int survivors,
+    const IpcPlayerResult* results, int resultCount)
 {
     std::lock_guard<std::mutex> lk(mtx);
 
     Log::Info("세션 종료 보고 수신: sid=%d reason=%d 생존=%d/%d",
         sessionId, reason, totalPlayers, survivors);
+
+    // 전적 저장. DB 스레드에 넘기고 즉시 넘어간다(여기서 기다리면 로비가 멈춘다).
+    for (int i = 0; i < resultCount; ++i)
+    {
+        const IpcPlayerResult& r = results[i];
+        if (r.playerName[0] == '\0') continue;
+        db.RequestPlayRecord(std::string(r.playerName), sessionId,
+            r.extracted != 0, r.playSeconds, r.monsterKills, r.playerKills);
+    }
+    if (resultCount > 0)
+        Log::Info("[DB] 전적 %d건 기록 요청 (대기 %zu건)", resultCount, db.PendingCount());
 
     auto sit = sessionToRoom.find(sessionId);
     if (sit == sessionToRoom.end())
@@ -527,6 +887,9 @@ void LobbyManager::OnSessionEnded(int sessionId, int reason,
 
     RoomData* room = GetRoom(roomId);
     if (!room) return;
+
+    // 인게임 동안 잠가 둔 닉네임을 푼다.
+    ReleaseNameLocks(room->memberIds);
 
     // 멤버 상태 복귀 (남아있는 연결만).
     std::vector<int> members = room->memberIds;

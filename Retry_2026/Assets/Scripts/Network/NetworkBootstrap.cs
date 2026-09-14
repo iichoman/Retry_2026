@@ -66,6 +66,14 @@ public class NetworkBootstrap : MonoBehaviour
     public DebugCheatKeys Cheats { get; private set; }   // [테스트 전용]
 
     /// <summary>[치트] 탈출 방으로 이동 요청. 실제 이동은 서버가 수행한다.</summary>
+    /// <summary>[치트] 보스 방으로 이동 요청. 실제 이동은 서버가 수행한다.</summary>
+    public void RequestDebugTeleportBoss()
+    {
+        if (Session == null || !Session.IsConnected) return;
+        pendingSelfTeleport = true;
+        Session.SendDebugTeleportBoss();
+    }
+
     public void RequestDebugTeleportExit()
     {
         if (Session == null || !Session.IsConnected) return;
@@ -111,6 +119,8 @@ public class NetworkBootstrap : MonoBehaviour
         Cheats = EnsureChild<DebugCheatKeys>("DebugCheatKeys");
         Cheats.Initialize(this);
 
+        EnsureChild<PlayerStamina>("PlayerStamina");   // 달리기/공격 스태미나
+
         Identity.SetPlayerName(playerName);
         RemotePlayers.RemotePlayerPrefab = remotePlayerPrefab;
         RemoteMonsters.MonsterPrefab = monsterPrefab;
@@ -130,7 +140,16 @@ public class NetworkBootstrap : MonoBehaviour
     }
 
     // 타이틀 화면의 "시작" 버튼이 호출. 연결 + 로그인.
-    public bool BeginLogin(string nickname)
+    /// <summary>로그인 없이 로비 소켓만 연결. 회원가입/비밀번호 찾기용.</summary>
+    public bool ConnectLobbyOnly()
+    {
+        if (Lobby.IsConnected) return true;
+        if (!Lobby.Connect(lobbyServerIP, lobbyServerPort)) return false;
+        Identity.IsConnectedToLobby = true;
+        return true;
+    }
+
+    public bool BeginLogin(string nickname, string password, int reconnectClientId = 0)
     {
         if (!string.IsNullOrWhiteSpace(nickname))
         {
@@ -142,7 +161,7 @@ public class NetworkBootstrap : MonoBehaviour
             if (!Lobby.Connect(lobbyServerIP, lobbyServerPort)) return false;
             Identity.IsConnectedToLobby = true;
         }
-        Lobby.SendLogin(playerName);
+        Lobby.SendLogin(playerName, password, reconnectClientId);
         return true;
     }
 
@@ -187,7 +206,7 @@ public class NetworkBootstrap : MonoBehaviour
                     }
                     else
                     {
-                        Debug.LogError($"[Lobby] 로그인 실패: {r.failReason}");
+                        Debug.LogError($"[Lobby] 로그인 실패: {NameCodec.Decode(r.failReason)}");
                     }
                     break;
                 }
@@ -492,12 +511,17 @@ public class NetworkBootstrap : MonoBehaviour
                 {
                     var d = PacketIO.BytesToStruct<MonsterDied>(body, 0);
                     RemoteMonsters.OnDied(d.monsterId);
+                    if (d.killerId == Identity.LocalClientId && DungeonExitManager.Instance != null)
+                        DungeonExitManager.Instance.RegisterNetworkMonsterKill();
                     break;
                 }
             case PacketType.PLAYER_DIED:
                 {
                     var d = PacketIO.BytesToStruct<PlayerDied>(body, 0);
                     Debug.Log($"[Session] 사망: victim={d.victimId} killer={d.killerId}");
+                    if (d.killerId == Identity.LocalClientId && d.victimId != Identity.LocalClientId
+                        && DungeonExitManager.Instance != null)
+                        DungeonExitManager.Instance.RegisterNetworkPlayerKill();
                     // 본인 사망 시 처리(추후: 사망 UI, 리스폰)
                     if (d.victimId == Identity.LocalClientId)
                     {

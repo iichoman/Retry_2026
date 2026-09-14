@@ -31,6 +31,14 @@ public enum PacketType : int
     GAME_START_NOTICE = 18,   // S→C: 던전 생성 시작 공지
     SESSION_START_GAME = 19,  // S→C: 전원 입장 완료 → 동시 시작
 
+    // 계정 (로비, 100번대)
+    REGISTER_REQUEST = 100,
+    REGISTER_RESULT = 101,
+    RESET_PW_REQUEST = 102,
+    RESET_PW_RESULT = 103,
+    PLAYER_STATS_REQUEST = 104,
+    PLAYER_STATS_RESULT = 105,
+
     // 인게임 - 입력 / 위치
     PLAYER_INPUT = 20,
     PLAYER_ENTER_VIEW = 21,
@@ -69,6 +77,7 @@ public enum PacketType : int
     INVENTORY_SYNC = 64,
 
     DEBUG_TELEPORT_EXIT = 90,   // [치트] 배포 시 제거
+    DEBUG_TELEPORT_BOSS = 91,   // [치트] 배포 시 제거
 }
 
 public enum WeaponKind : int
@@ -109,6 +118,12 @@ public struct LoginRequest
 {
     [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
     public byte[] playerName;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
+    public byte[] password;
+    // 인게임에 들어가면 로비 연결을 끊는다. 그동안 서버가 이 닉네임을 잠가 두는데,
+    // 로비로 돌아올 때 이전 clientId를 보내야 "주인"으로 인정받아 통과한다.
+    // 0 = 새 로그인.
+    public int reconnectClientId;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
@@ -116,8 +131,40 @@ public struct LoginResult
 {
     public int success;
     public int clientId;
-    [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)]
-    public string failReason;
+    // 서버가 한글 사유를 보낸다. ByValTStr은 ANSI 코드페이지라 깨지므로 UTF-8 바이트로 받는다.
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
+    public byte[] failReason;
+}
+
+// S→C: 회원가입 / 비밀번호 재설정 결과
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public struct AccountResult
+{
+    public int success;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
+    public byte[] failReason;
+}
+
+// C→S: 회원가입 / 비밀번호 재설정
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public struct AccountRequest
+{
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]
+    public byte[] playerName;
+    [MarshalAs(UnmanagedType.ByValArray, SizeConst = 64)]
+    public byte[] password;
+}
+
+// S→C: 내 전적
+[StructLayout(LayoutKind.Sequential, Pack = 1)]
+public struct PlayerStatsResult
+{
+    public int success;
+    public int totalRuns;
+    public int totalExtractions;
+    public int monsterKills;
+    public int playerKills;
+    public int bestSeconds;
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 1)]

@@ -191,6 +191,7 @@ void ProjectileSystem::Update(GameSession& session, float dtSec)
                         pd.victimId = hitTarget;
                         pd.killerId = p.ownerId;
                         session.Broadcast((int)PacketType::PLAYER_DIED, &pd, sizeof(pd), 0);
+                        session.AddPlayerKill(p.ownerId);
                     }
                 }
             }

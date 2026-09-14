@@ -161,6 +161,7 @@
     <ClInclude Include="Dungeon\CSharpRandom.h" />
     <ClInclude Include="Dungeon\DungeonGenerator.h" />
     <ClInclude Include="Dungeon\DungeonTypes.h" />
+    <ClInclude Include="Dungeon\TileBitmap.h" />
     <ClInclude Include="GameSession.h" />
     <ClInclude Include="InterestManagement.h" />
     <ClInclude Include="IpcReceiver.h" />

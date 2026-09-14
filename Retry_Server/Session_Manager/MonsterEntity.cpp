@@ -15,32 +15,33 @@ MonsterEntity::MonsterEntity(int monsterId, int monsterKind, const Vec3& spawnPo
     // 종류별 기본 파라미터. 추후 데이터 테이블화 가능.
     switch (monsterKind)
     {
+    // 기준: 한손검 1타 20, 스태미나 100(1타당 2) → 한 바퀴에 50타.
     case MONSTER_BOSS:
-        hp = maxHp = 5000;
+        hp = maxHp = 4000;            // 3인이 200타 = 1인당 67타 (스태미나 1.3바퀴)
         moveSpeed = 2.5f;
         detectRange = 25.0f;
         attackRange = 4.0f;
-        attackCooldownMs = 6000.0f;
-        attackDamage = 5; // 보스 (원래 50)
+        attackCooldownMs = 4000.0f;
+        attackDamage = 22;            // 5대 맞으면 사망(100HP) → 반드시 빠졌다 붙어야 함
         break;
 
     case MONSTER_ELITE:
-        hp = maxHp = 800;
+        hp = maxHp = 300;             // 15타
         moveSpeed = 3.5f;
         detectRange = 18.0f;
         attackRange = 2.5f;
-        attackCooldownMs = 4000.0f;
-        attackDamage = 5; // 정예 (원래 25)
+        attackCooldownMs = 3500.0f;
+        attackDamage = 16;            // 7대
         break;
 
     case MONSTER_NORMAL:
     default:
-        hp = maxHp = 200;
+        hp = maxHp = 80;              // 4타
         moveSpeed = 3.0f;
         detectRange = 12.0f;
         attackRange = 2.0f;
-        attackCooldownMs = 5000.0f;
-        attackDamage = 5; // 일반 (원래 10)
+        attackCooldownMs = 3000.0f;
+        attackDamage = 8;             // 13대
         break;
     }
 }

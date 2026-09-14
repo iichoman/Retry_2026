@@ -1,6 +1,7 @@
 ﻿#pragma once
 #include "DungeonTypes.h"
 #include "CSharpRandom.h"
+#include "TileBitmap.h"
 
 #include <vector>
 #include <memory>
@@ -16,7 +17,7 @@
 //  사용:
 //    DungeonGenerator gen;
 //    gen.Generate(seed);
-//    // gen.floorTiles, gen.wallTiles, gen.solidTiles 등 사용 가능
+//    // gen.floorTiles, gen.wallTiles (TileBitmap), gen.IsSolidTile() 등 사용 가능
 //    // gen.rooms, gen.corridors 사용 가능
 //
 //  좌표계:
@@ -60,10 +61,12 @@ public:
     std::vector<Corridor>                 corridors;
     std::vector<StartRoom>                assignedStartRooms;
     int                                   exitRoomId = -1;   // Exit로 지정된 방 id (-1=없음)
-    std::unordered_set<IntVec3>           floorTiles;
-    std::unordered_set<IntVec3>           wallTiles;
-    std::unordered_set<IntVec3>           ceilingTiles;
-    std::unordered_set<IntVec3>           solidTiles;
+    // 타일 집합은 비트맵이다. unordered_set이던 시절엔 던전 1개가 40~48MB였고
+    // 세션 수 = 메모리 한계였다. 비트맵으로 바꿔 던전 1개가 2~3MB가 됐다.
+    // solidTiles는 floor|wall|ceiling 중복이라 없애고 IsSolidTile에서 계산한다.
+    TileBitmap                            floorTiles;
+    TileBitmap                            wallTiles;
+    TileBitmap                            ceilingTiles;
     IntVec3                               worldOffset;
 
     // 메인 진입점. 시드를 받아 던전 데이터 생성.
@@ -141,6 +144,8 @@ private:
     std::vector<Room*> FindNearestRooms(const Vec3& startCenter, int count, const Room* excludedRoom);
     void  AddHorizontalCorridor(std::unordered_set<IntVec3>& dst, int x1, int x2, int z);
     void  AddVerticalCorridor(std::unordered_set<IntVec3>& dst, int z1, int z2, int x);
+    // 던전 크기에 맞춰 비트맵을 잡는다. Generate 시작 때 1회.
+    void  ResetTileBitmaps();
 
     // 타일 수집
     void  AddRoomTiles();

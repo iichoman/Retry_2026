@@ -80,6 +80,8 @@ public:
 
     // 몬스터 사망 시 전리품 생성 (CombatResolver/ProjectileSystem이 호출).
     void OnMonsterKilled(int monsterId, int killerClientId);
+    // 플레이어 처치 집계. CombatResolver/ProjectileSystem이 PLAYER_DIED와 함께 호출.
+    void AddPlayerKill(int killerClientId);
     void AttachClient(int clientId, SessionClientConnection* conn);
     void DetachClient(int clientId);
     void HandlePacket(int clientId, int packetType, const char* body, int bodySize);
@@ -138,6 +140,9 @@ private:
 
     // [디버그 치트] 탈출 방 근처로 이동. 배포 시 이 선언과 구현 삭제.
     void HandleDebugTeleportExit(int clientId);
+    void HandleDebugTeleportBoss(int clientId);
+    bool RoomCenterStandPos(int roomId, Vec3& out) const;
+    void DebugTeleportTo(int clientId, const Vec3& dest, const char* label);
     PlayerEntity* GetPlayer(int clientId);
 
     // 매 틱: 탈출 방 안 체류 시간 누적 (방 밖이면 0 리셋). mtx 잠긴 상태에서 호출.

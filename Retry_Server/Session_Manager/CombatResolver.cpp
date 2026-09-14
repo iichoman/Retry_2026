@@ -25,12 +25,12 @@ CombatResolver::WeaponData CombatResolver::GetWeaponData(int weaponKind)
     {
         // 근거리: 닿는 모든 대상 피격 (범위)
     case WEAPON_BIG_SWORD: return { 45, 3.5f, 3.0f, 900, false,  0.f };  // 양손검: 넓고 강함, 느림
-    case WEAPON_SWORD:     return { 10, 2.5f, 2.0f, 400, false,  0.f };  // 한손검: 표준
+    case WEAPON_SWORD:     return { 20, 2.5f, 2.0f, 400, false,  0.f };  // 한손검: 표준 (기준 무기)
 
                      // 원거리: 투사체 1발 (단일 대상)
                      // 원거리: 투사체 1발 (단일 대상). 테스트용으로 아주 느리게 비행.
     case WEAPON_BOW:       return { 30, 15.0f, 0.f, 600, true,  6.f };  // 활: 6 m/s (천천히)
-    case WEAPON_GUN:       return { 15, 20.0f, 0.f, 200, true,  8.f };  // 총: 8 m/s (천천히)
+    case WEAPON_GUN:       return { 10, 20.0f, 0.f, 200, true,  8.f };  // 총: 8 m/s (천천히)
 
     default:               return { 10, 2.5f, 2.0f, 400, false,  0.f };
     }
@@ -212,6 +212,7 @@ void CombatResolver::HandleAttack(GameSession& session, int attackerId,
                 pd.victimId = pid;
                 pd.killerId = attackerId;
                 session.Broadcast((int)PacketType::PLAYER_DIED, &pd, sizeof(pd), 0);
+                session.AddPlayerKill(attackerId);
             }
         }
     }

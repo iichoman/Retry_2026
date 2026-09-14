@@ -14,7 +14,8 @@ LobbyReporter::LobbyReporter(const std::string& lobbyIp, int lobbyEventPort)
 }
 
 bool LobbyReporter::ReportSessionEnded(int sessionId, int reason,
-    int totalPlayers, int survivors)
+    int totalPlayers, int survivors,
+    const std::vector<IpcPlayerResult>& results)
 {
     SOCKET sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock == INVALID_SOCKET)
@@ -46,6 +47,11 @@ bool LobbyReporter::ReportSessionEnded(int sessionId, int reason,
     msg.reason = reason;
     msg.totalPlayers = totalPlayers;
     msg.survivors = survivors;
+
+    int n = (int)results.size();
+    if (n > MAX_SESSION_PLAYERS) n = MAX_SESSION_PLAYERS;
+    msg.resultCount = n;
+    for (int i = 0; i < n; ++i) msg.results[i] = results[i];
 
     bool ok = Net::SendPacket(sock,
         static_cast<int>(PacketType::IPC_SESSION_ENDED),

@@ -34,6 +34,8 @@ public:
     std::atomic<State>     state;
     std::atomic_bool       active;
     int                    currentRoomId;   // 0 = 방 없음
+    int                    dbPlayerId = 0;  // DB의 Player.player_id (0 = DB 미사용/실패)
+    long long              startingAtMs = 0;// ST_STARTING이 된 시각. 닉네임 잠금 만료 판정용.
 
     // 수신용 OverlappedEx (멤버로 임베드, heap 할당 안 함)
     struct RecvOverlapped {

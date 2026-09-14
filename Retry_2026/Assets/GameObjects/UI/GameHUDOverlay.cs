@@ -21,6 +21,7 @@ public sealed class GameHUDOverlay : MonoBehaviour
     private Text staminaText;
     private Image hpFill;
     private Image staminaFill;
+    private RawImage portraitRaw;      // 얼굴 실시간 렌더를 그리는 칸
     private Sprite portraitSprite;
     private static Font cachedDefaultFont;
 
@@ -66,7 +67,19 @@ public sealed class GameHUDOverlay : MonoBehaviour
     {
         SyncLocalPlayer();
         RefreshTimer();
+        RefreshStamina();
+
+        // HUD는 로그인/로컬 플레이어 생성보다 먼저 만들어진다.
+        // 그래서 닉네임과 얼굴은 Awake 한 번으로는 못 붙는다 → 주기적으로 다시 시도.
+        if (Time.unscaledTime >= nextLateBindAt)
+        {
+            nextLateBindAt = Time.unscaledTime + 0.5f;
+            RefreshPlayerName();
+            RefreshPortrait();
+        }
     }
+
+    private float nextLateBindAt;
 
     // 로컬 플레이어는 세션 접속 시 런타임에 생성된다. 그래서 OnEnable 시점엔 없을 수 있고,
     // FindFirstObjectByType은 로비 디오라마/원격 플레이어를 잘못 잡을 수 있다.
@@ -86,6 +99,7 @@ public sealed class GameHUDOverlay : MonoBehaviour
         playerState.HpChanged += RefreshHp;
         RefreshHp(playerState.CurrentHp, playerState.MaxHp);
         RefreshPlayerName();
+        RefreshPortrait();
     }
 
     private Player_State FindLocalPlayerState()
@@ -150,7 +164,8 @@ public sealed class GameHUDOverlay : MonoBehaviour
     {
         GameObject panel = CreatePanel("Player Command Panel", parent, new Vector2(32f, 28f), new Vector2(430f, 126f), Vector2.zero, Vector2.zero);
 
-        GameObject portraitFrame = CreatePanel("Portrait Frame", panel.transform, new Vector2(19f, -18f), new Vector2(112f, 112f), new Vector2(0f, 1f), new Vector2(0f, 1f));
+        // 패널 높이가 126이라 y=-18이면 112짜리 액자가 아래로 4px 삐져나온다. -7로 올려 안에 넣는다.
+        GameObject portraitFrame = CreatePanel("Portrait Frame", panel.transform, new Vector2(19f, -7f), new Vector2(112f, 112f), new Vector2(0f, 1f), new Vector2(0f, 1f));
         Image portraitFrameImage = portraitFrame.GetComponent<Image>();
         SetGradient(portraitFrameImage, GoldTop, GoldBottom);
 
@@ -160,11 +175,11 @@ public sealed class GameHUDOverlay : MonoBehaviour
         portraitRect.anchorMax = Vector2.one;
         portraitRect.offsetMin = new Vector2(8f, 8f);
         portraitRect.offsetMax = new Vector2(-8f, -8f);
-        Image portraitImage = portraitObject.AddComponent<Image>();
-        portraitImage.raycastTarget = false;
-        portraitImage.sprite = null;
-        portraitImage.type = Image.Type.Simple;
-        portraitImage.color = new Color(0.015f, 0.018f, 0.024f, 0.92f);
+        // 캐릭터 얼굴을 실시간으로 받아 그린다(PlayerPortrait). 아직 없으면 어두운 빈 칸.
+        portraitRaw = portraitObject.AddComponent<RawImage>();
+        portraitRaw.raycastTarget = false;
+        portraitRaw.texture = null;
+        portraitRaw.color = new Color(0.015f, 0.018f, 0.024f, 0.92f);
 
         playerNameText = CreateText("Player Name", panel.transform, new Vector2(150f, -18f), new Vector2(230f, 30f), "PLAYER", 24, FontStyle.Bold, TextAnchor.MiddleLeft, GoldTop);
 
@@ -308,10 +323,27 @@ public sealed class GameHUDOverlay : MonoBehaviour
             return;
         }
 
-        string playerId = player != null && !string.IsNullOrWhiteSpace(player.PlayerId)
-            ? player.PlayerId
-            : "PLAYER";
-        playerNameText.text = playerId.ToUpperInvariant();
+        // 로그인할 때 쓴 닉네임을 그대로 보여준다. 한글이 그대로 나와야 하니 대문자 변환은 안 한다.
+        string nickname = LocalIdentity.Instance != null ? LocalIdentity.Instance.PlayerName : null;
+        if (string.IsNullOrWhiteSpace(nickname) || nickname == "Player")
+        {
+            nickname = player != null && !string.IsNullOrWhiteSpace(player.PlayerId)
+                ? player.PlayerId.ToUpperInvariant()
+                : "PLAYER";
+        }
+        playerNameText.text = nickname;
+    }
+
+    // 로컬 플레이어가 정해지면 얼굴 렌더 카메라를 붙이고 프로필 칸에 물린다.
+    private void RefreshPortrait()
+    {
+        if (portraitRaw == null || playerState == null) return;
+
+        var portrait = PlayerPortrait.Ensure(playerState.transform);
+        if (portrait == null || portrait.Texture == null) return;
+
+        portraitRaw.texture = portrait.Texture;
+        portraitRaw.color = Color.white;
     }
 
     private void RefreshHp(int currentHp, int maxHp)
@@ -347,6 +379,10 @@ public sealed class GameHUDOverlay : MonoBehaviour
 
     private void RefreshStamina()
     {
+        // 실제 스태미나 컴포넌트가 있으면 그 값을 쓴다.
+        var st = PlayerStamina.Local;
+        if (st != null) { maxStamina = st.Max; currentStamina = st.Current; }
+
         int safeMax = Mathf.Max(1, maxStamina);
         int safeCurrent = Mathf.Clamp(currentStamina, 0, safeMax);
 

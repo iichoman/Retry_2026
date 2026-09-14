@@ -42,6 +42,11 @@ public:
     bool  extracted = false;
     float extractionHoldSec = 0.f;
 
+    // ── 전적 (DB 기록용) ──────────────────────────────────────
+    int       monsterKills = 0;
+    int       playerKills = 0;
+    long long joinedAtMs = 0;      // 입장 시각. 플레이 시간 계산용.
+
     // 월드 시뮬레이션 대상인지 (시야/전투/AI 타겟 공통 조건).
     bool IsActiveInWorld() const { return hp > 0 && !extracted; }
 

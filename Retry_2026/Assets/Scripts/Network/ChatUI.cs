@@ -33,7 +33,8 @@ public class ChatUI : MonoBehaviour
     public static bool IsTyping { get; private set; }
 
     [Header("표시")]
-    [SerializeField, Min(1)] private int maxLines = 8;          // 로비창 줄 수
+    // 화면에 보이는 줄 수는 로그창 높이가 정한다. 이건 "보관"하는 줄 수.
+    [SerializeField, Min(1)] private int maxLines = 300;
     // 파티창은 6줄만 보이고(뷰포트 높이) 넘친 건 스크롤로 본다.
     // 여기 값은 "보관"하는 최대 줄 수라 넉넉하게 둔다.
     [SerializeField, Min(1)] private int maxPartyLines = 300;
@@ -47,7 +48,10 @@ public class ChatUI : MonoBehaviour
     private Text channelLabel;
     private InputField inputField;
     private GameObject inputRow;
+    private GameObject logGo;
+    private bool inputRowWanted;
     private CanvasGroup logGroup;
+    private ScrollRect logScroll;
 
     // 파티 창 (LobbyUI가 넘겨줌)
     private GameObject partyPanelRoot;
@@ -58,6 +62,7 @@ public class ChatUI : MonoBehaviour
     private readonly List<string> partyLines = new List<string>();
 
     private ChatChannel channel = ChatChannel.All;
+    private bool wasInSession;            // 세션 진입 순간을 잡아 로비 로그를 비우는 용도
     private float lastMessageTime;
 
     private enum Target { None, Lobby, Party }
@@ -210,6 +215,17 @@ public class ChatUI : MonoBehaviour
 
         ValidateChannel();
 
+        // 던전에 들어가는 순간, 로비에서 받아 둔 [전체] 방송을 비운다.
+        if (InSession != wasInSession)
+        {
+            wasInSession = InSession;
+            if (wasInSession)
+            {
+                lines.Clear();
+                if (logText != null) logText.text = string.Empty;
+            }
+        }
+
         // 로그인 전에는 어떤 입력도 받지 않는다.
         if (!CanChat)
         {
@@ -294,6 +310,7 @@ public class ChatUI : MonoBehaviour
 
         if (t == Target.Lobby)
         {
+            inputRowWanted = true;
             inputRow.SetActive(true);
             ApplyChannelToLabel();
             FocusInput(inputField);
@@ -313,6 +330,7 @@ public class ChatUI : MonoBehaviour
         typing = Target.None;
         IsTyping = false;
 
+        inputRowWanted = false;
         if (inputRow != null) inputRow.SetActive(false);
         if (inputField != null) inputField.DeactivateInputField();
         if (partyInputField != null) partyInputField.DeactivateInputField();
@@ -395,6 +413,14 @@ public class ChatUI : MonoBehaviour
         if (logText != null) logText.text = string.Join("\n", lines);
         lastMessageTime = Time.unscaledTime;
         if (logGroup != null) logGroup.alpha = 1f;
+        if (isActiveAndEnabled) StartCoroutine(ScrollLobbyToBottom());
+    }
+
+    // 레이아웃이 갱신된 다음 프레임에 내려야 맨 아래로 정확히 붙는다.
+    private System.Collections.IEnumerator ScrollLobbyToBottom()
+    {
+        yield return null;
+        if (logScroll != null) logScroll.verticalNormalizedPosition = 0f;
     }
 
     private void AppendParty(string line)
@@ -423,6 +449,20 @@ public class ChatUI : MonoBehaviour
     private void UpdateLogVisibility()
     {
         if (logGroup == null) return;
+
+        // 로그인 전(시작 화면)과 파티 대기실에서는 [전체] 로그/입력줄을 통째로 끈다.
+        //  · 시작 화면 : 켜 두면 투명해도 레이캐스트를 먹어 비번 칸·시작 버튼이 안 눌린다
+        //  · 대기실    : 방 위에 겹쳐 그려 가린다. 대기실 안에서는 파티 채팅을 쓴다
+        bool hide = !CanChat || PartyAvailable;
+        if (logGo != null && logGo.activeSelf == hide) logGo.SetActive(!hide);
+        bool wantRow = !hide && inputRowWanted;
+        if (inputRow != null && inputRow.activeSelf != wantRow) inputRow.SetActive(wantRow);
+        if (hide) return;
+
+        // 클릭/휠은 채팅을 연 동안에만 가로챈다.
+        // 상시 켜 두면 로그창 넓이(760x170)만큼 뒤쪽 버튼이 통째로 죽는다.
+        // 스크롤로 지난 대화를 보려면 Enter로 채팅을 열면 된다.
+        logGroup.blocksRaycasts = (typing == Target.Lobby);
 
         if (typing == Target.Lobby) { logGroup.alpha = 1f; return; }
         if (lines.Count == 0) { logGroup.alpha = 0f; return; }
@@ -455,22 +495,60 @@ public class ChatUI : MonoBehaviour
         canvasGo.AddComponent<GraphicRaycaster>();
 
         // 로그 영역 (좌하단)
-        var logGo = new GameObject("ChatLog");
+        logGo = new GameObject("ChatLog");
         logGo.transform.SetParent(canvasGo.transform, false);
         var logRt = logGo.AddComponent<RectTransform>();
         logRt.anchorMin = Vector2.zero;
         logRt.anchorMax = Vector2.zero;
         logRt.pivot = Vector2.zero;
-        logRt.anchoredPosition = new Vector2(24f, 76f);
-        logRt.sizeDelta = new Vector2(760f, 190f);
+        // 로그창과 입력줄은 한 덩어리다. ChatBottom 하나만 고치면 통째로 움직인다.
+        // (좌하단 HP/스태미나 HUD 위로 충분히 띄워 둔 값)
+        const float ChatX = 24f;
+        // 스테이터스 UI(좌하단 패널)는 y 28~154를 쓴다. 그 위로 한 뼘(26px) 띄운다.
+        const float ChatBottom = 180f;   // 입력줄 아래변
+        const float ChatW = 760f;
+        const float RowH = 40f;          // 입력줄 높이
+        const float LogH = 170f;         // 로그창 높이
+
+        logRt.anchoredPosition = new Vector2(ChatX, ChatBottom + RowH);   // 입력줄 바로 위 = 딱 붙음
+        logRt.sizeDelta = new Vector2(ChatW, LogH);
         logGroup = logGo.AddComponent<CanvasGroup>();
         logGroup.interactable = false;
-        logGroup.blocksRaycasts = false;
+        logGroup.blocksRaycasts = false;       // 채팅을 연 동안에만 켠다
         logGo.AddComponent<Image>().color = ColPanel;
 
-        logText = MakeText(logGo.transform, fontSize, ColAll, TextAnchor.LowerLeft);
-        logText.rectTransform.offsetMin = new Vector2(10f, 8f);
-        logText.rectTransform.offsetMax = new Vector2(-10f, -8f);
+        // 지난 대화를 휠로 되짚어 볼 수 있게 스크롤 영역을 만든다.
+        // 구조: ChatLog(ScrollRect) > Viewport(RectMask2D) > Content(자동 높이) > Text
+        var vp = new GameObject("Viewport", typeof(RectTransform));
+        vp.transform.SetParent(logGo.transform, false);
+        var vpRt = vp.GetComponent<RectTransform>();
+        vpRt.anchorMin = Vector2.zero; vpRt.anchorMax = Vector2.one;
+        vpRt.offsetMin = new Vector2(10f, 8f);
+        vpRt.offsetMax = new Vector2(-10f, -8f);
+        vp.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.001f);   // 마스크용 최소 그래픽
+        vp.AddComponent<RectMask2D>();
+
+        // ContentSizeFitter는 자기 오브젝트의 Text 크기를 읽는다.
+        // Text를 자식으로 두면 높이가 0이라 스크롤이 안 먹어서, Text 자체를 content로 쓴다.
+        logText = MakeText(vp.transform, fontSize, ColAll, TextAnchor.LowerLeft);
+        var cRt = logText.rectTransform;
+        cRt.anchorMin = new Vector2(0f, 0f);
+        cRt.anchorMax = new Vector2(1f, 0f);
+        cRt.pivot = new Vector2(0.5f, 0f);
+        cRt.offsetMin = Vector2.zero;
+        cRt.offsetMax = Vector2.zero;
+        logText.verticalOverflow = VerticalWrapMode.Overflow;
+        logText.raycastTarget = false;
+        var fit = logText.gameObject.AddComponent<ContentSizeFitter>();
+        fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        logScroll = logGo.AddComponent<ScrollRect>();
+        logScroll.content = cRt;
+        logScroll.viewport = vpRt;
+        logScroll.horizontal = false;
+        logScroll.vertical = true;
+        logScroll.movementType = ScrollRect.MovementType.Clamped;
+        logScroll.scrollSensitivity = 18f;
 
         // 입력 줄
         inputRow = new GameObject("ChatInputRow");
@@ -479,8 +557,8 @@ public class ChatUI : MonoBehaviour
         rowRt.anchorMin = Vector2.zero;
         rowRt.anchorMax = Vector2.zero;
         rowRt.pivot = Vector2.zero;
-        rowRt.anchoredPosition = new Vector2(24f, 28f);
-        rowRt.sizeDelta = new Vector2(760f, 40f);
+        rowRt.anchoredPosition = new Vector2(ChatX, ChatBottom);
+        rowRt.sizeDelta = new Vector2(ChatW, RowH);
         inputRow.AddComponent<Image>().color = new Color(0f, 0f, 0f, 0.78f);
 
         var chGo = new GameObject("Channel");
