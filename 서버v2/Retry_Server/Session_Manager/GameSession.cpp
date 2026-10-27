@@ -1,0 +1,1052 @@
+﻿#include "GameSession.h"
+#include "PlayerEntity.h"
+#include "MonsterEntity.h"
+#include "SessionClientConnection.h"
+#include "PositionValidator.h"
+#include "LobbyReporter.h"
+#include "LootSystem.h"
+#include "../Common/PacketProtocol.h"
+#include "../Common/Logger.h"
+#include "V2Config.h"
+
+#include <chrono>
+#include <cstdlib>
+#include <cstring>
+#include <new>
+#include <vector>
+
+using namespace std::chrono;
+
+// ============================================================================
+//  v2: 세션 일감 할당 (본문을 구조체 뒤에 붙여 한 번에)
+// ============================================================================
+
+SessionJob* SessionJob::Create(Kind k, int cid, SessionClientConnection* c,
+    int type, const char* body, int size)
+{
+    if (size < 0) size = 0;
+    void* mem = std::malloc(sizeof(SessionJob) + (size_t)size);
+    if (!mem) return nullptr;
+
+    SessionJob* j = new (mem) SessionJob();
+    j->next = nullptr;
+    j->kind = k;
+    j->clientId = cid;
+    j->conn = c;
+    j->packetType = type;
+    j->size = size;
+    if (body && size > 0) std::memcpy(j->Body(), body, (size_t)size);
+    return j;
+}
+
+void SessionJob::Destroy(SessionJob* j)
+{
+    std::free(j);
+}
+
+// ============================================================================
+//  [디버그 치트] 즉시 탈출
+//
+//  true면 EXTRACTION_REQUEST의 위치/체류시간 검증을 건너뛴다.
+//  탈출 방까지 걸어가서 7초 서 있는 과정 없이 탈출 흐름을 테스트할 때 사용.
+//
+//  주의: 서버가 권위라 클라 치트키만으로는 동작하지 않는다. 이 값이 true여야 함.
+//        배포 전 반드시 false로. 켜져 있으면 세션 시작 로그에 경고가 찍힌다.
+//
+//  기본값 false: F9 치트는 "탈출 방 근처로 이동"이라 검증을 건너뛸 필요가 없다.
+//  (이동 후 실제로 걸어들어가 7초 홀드하는 정상 흐름을 그대로 테스트한다)
+//  검증 자체를 건너뛰고 싶을 때만 true로.
+// ============================================================================
+static constexpr bool DEBUG_INSTANT_EXTRACT = false;
+
+// [디버그 치트] 탈출 방 이동 허용. 배포 전 false로.
+static constexpr bool DEBUG_ALLOW_TELEPORT = true;
+
+GameSession::GameSession(int sid, int hid, int seed,
+    const std::vector<int>& allowedPlayerIds,
+    const std::vector<int>& playerTeams,
+    const std::vector<std::string>& playerNames,
+    LobbyReporter* rep)
+    : sessionId(sid)
+    , hostClientId(hid)
+    , mapSeed(seed)
+    , running(false)
+    , reporter(rep)
+{
+    for (size_t i = 0; i < allowedPlayerIds.size(); ++i)
+    {
+        int id = allowedPlayerIds[i];
+        allowedPlayers.insert(id);
+        playerTeamMap[id] = (i < playerTeams.size()) ? playerTeams[i] : 0;
+        if (i < playerNames.size() && !playerNames[i].empty())
+            playerNameMap[id] = playerNames[i];
+    }
+
+    hWake = CreateEventW(nullptr, FALSE, FALSE, nullptr);   // 자동 리셋 이벤트
+
+    if (V2::Get().preciseTick)
+    {
+        // Win10 1803+ 고해상도 타이머. 안 되면 일반 타이머 (Main에서 timeBeginPeriod(1))
+        hTimer = CreateWaitableTimerExW(nullptr, nullptr,
+            CREATE_WAITABLE_TIMER_HIGH_RESOLUTION, TIMER_ALL_ACCESS);
+        if (!hTimer) hTimer = CreateWaitableTimerW(nullptr, FALSE, nullptr);
+    }
+}
+
+GameSession::~GameSession()
+{
+    Stop();
+    FreeJobs();         // 멈춘 뒤에 들어온 일감까지 정리
+    if (hWake) CloseHandle((HANDLE)hWake);
+    if (hTimer) CloseHandle((HANDLE)hTimer);
+}
+
+void GameSession::Start()
+{
+    if (running) return;
+
+    // 던전 데이터를 시드로 생성. 동기 호출.
+    // 클라가 같은 시드로 자체 생성하므로 결과가 일치해야 함.
+    dungeon.Generate(mapSeed);
+
+    // 던전 위에 몬스터 결정적 배치 (같은 시드 → 같은 몬스터 위치).
+    worldSim.SpawnMonsters(dungeon, mapSeed);
+
+    running = true;
+    tickThread = std::thread([this] { TickLoop(); });
+    Log::Info("세션 시작: id=%d host=%d seed=%d 인원=%d",
+        sessionId, hostClientId, mapSeed, (int)allowedPlayers.size());
+
+    if (DEBUG_INSTANT_EXTRACT)
+        Log::Warn("*** 치트 활성: 즉시 탈출(DEBUG_INSTANT_EXTRACT) — 배포 전 끌 것 ***");
+    if (DEBUG_ALLOW_TELEPORT)
+        Log::Warn("*** 치트 활성: 탈출 방 이동(DEBUG_ALLOW_TELEPORT) — 배포 전 끌 것 ***");
+}
+
+void GameSession::Stop()
+{
+    if (!running.exchange(false)) return;
+    if (hWake) SetEvent((HANDLE)hWake);     // 대기 중인 틱 스레드를 바로 깨운다
+    if (tickThread.joinable()) tickThread.join();
+
+    // 틱 스레드가 끝났으므로 이제 세션을 만지는 스레드는 이 스레드뿐이다.
+    // (락 모드는 워커가 아직 들어올 수 있으므로 v1처럼 락을 잡는다)
+    std::unique_lock<std::recursive_mutex> lk(mtx, std::defer_lock);
+    if (!V2::Get().queueSync) lk.lock();
+    for (auto& kv : players)
+    {
+        if (kv.second->conn) kv.second->conn->Disconnect();
+    }
+    players.clear();
+    statPlayers.store(0, std::memory_order_relaxed);
+    FreeJobs();
+}
+
+// ============================================================================
+//  v2: 일감 큐
+//
+//  워커 스레드 : Post*() → 일감을 만들어 MpscStack에 넣기만 한다 (대기 없음)
+//  틱 스레드   : DrainJobs() → 통째로 꺼내 넣은 순서대로 처리한다
+//
+//  급한 일감(입장, 공격, 줍기, 탈출, 채팅, 치트)은 이벤트로 틱 스레드를 깨워 바로 처리한다.
+//  PLAYER_INPUT은 다음 틱에 몰아서 처리한다 (어차피 시야 갱신은 틱에서 나간다).
+// ============================================================================
+
+void GameSession::Post(SessionJob* job, bool urgent)
+{
+    if (!job) return;
+    jobs.Push(job);
+    // 급한 일감이면 깨운다. 이미 깨우기 신호가 나가 있으면 시스템 콜을 생략한다.
+    if (urgent && hWake && !wakePending.exchange(true, std::memory_order_acq_rel))
+        SetEvent((HANDLE)hWake);
+}
+
+void GameSession::LockTimed(std::unique_lock<std::recursive_mutex>& lk)
+{
+    auto t0 = steady_clock::now();
+    lk.lock();
+    auto us = duration_cast<microseconds>(steady_clock::now() - t0).count();
+    statLockWaitUs.fetch_add((unsigned long long)us, std::memory_order_relaxed);
+    statLockCount.fetch_add(1, std::memory_order_relaxed);
+}
+
+// 락 모드(sync=lock)는 v1처럼 워커가 세션 락을 잡고 바로 처리한다 (비교 실험용).
+
+void GameSession::PostAttach(int clientId, SessionClientConnection* conn)
+{
+    if (!V2::Get().queueSync)
+    {
+        std::unique_lock<std::recursive_mutex> lk(mtx, std::defer_lock);
+        LockTimed(lk);
+        AttachClient(clientId, conn);
+        FlushSends();
+        return;
+    }
+    Post(SessionJob::Create(SessionJob::ATTACH, clientId, conn, 0, nullptr, 0), true);
+}
+
+void GameSession::PostDetach(int clientId)
+{
+    if (!V2::Get().queueSync)
+    {
+        std::unique_lock<std::recursive_mutex> lk(mtx, std::defer_lock);
+        LockTimed(lk);
+        DetachClient(clientId);
+        return;
+    }
+    Post(SessionJob::Create(SessionJob::DETACH, clientId, nullptr, 0, nullptr, 0), false);
+}
+
+void GameSession::PostPacket(int clientId, int packetType, const char* body, int bodySize)
+{
+    bool urgent = (packetType != (int)PacketType::PLAYER_INPUT);
+    if (!V2::Get().queueSync)
+    {
+        std::unique_lock<std::recursive_mutex> lk(mtx, std::defer_lock);
+        LockTimed(lk);
+        HandlePacket(clientId, packetType, body, bodySize);
+        if (urgent) FlushSends();               // 공격·채팅 응답은 다음 틱까지 미루지 않는다
+        return;
+    }
+    Post(SessionJob::Create(SessionJob::PACKET, clientId, nullptr, packetType, body, bodySize), urgent);
+}
+
+// send=batch: 모아 둔 패킷을 연결마다 WSASend 한 번으로 보낸다
+void GameSession::FlushSends()
+{
+    if (!V2::Get().batchSend) return;
+    for (auto& kv : players)
+    {
+        SessionClientConnection* c = kv.second->conn;
+        if (c) c->FlushSend();
+    }
+}
+
+void GameSession::DrainJobs()
+{
+    SessionJob* j = jobs.PopAll();
+    while (j)
+    {
+        SessionJob* next = j->next;
+        switch (j->kind)
+        {
+        case SessionJob::ATTACH: AttachClient(j->clientId, j->conn); break;
+        case SessionJob::DETACH: DetachClient(j->clientId); break;
+        case SessionJob::PACKET: HandlePacket(j->clientId, j->packetType, j->Body(), j->size); break;
+        }
+        SessionJob::Destroy(j);
+        ++drainedJobs;
+        j = next;
+    }
+}
+
+void GameSession::FreeJobs()
+{
+    SessionJob* j = jobs.PopAll();
+    while (j)
+    {
+        SessionJob* next = j->next;
+        SessionJob::Destroy(j);
+        j = next;
+    }
+}
+
+GameSession::TickStats GameSession::TakeStats()
+{
+    TickStats s;
+    s.ticks = statTicks.exchange(0, std::memory_order_relaxed);
+    s.workUs = statWorkUs.exchange(0, std::memory_order_relaxed);
+    s.jobs = statJobs.exchange(0, std::memory_order_relaxed);
+    s.maxUs = statMaxUs.exchange(0, std::memory_order_relaxed);
+    s.players = statPlayers.load(std::memory_order_relaxed);
+    s.lockWaitUs = statLockWaitUs.exchange(0, std::memory_order_relaxed);
+    s.lockCount = statLockCount.exchange(0, std::memory_order_relaxed);
+    return s;
+}
+
+bool GameSession::IsAllowedPlayer(int clientId) const
+{
+    return allowedPlayers.count(clientId) > 0;
+}
+
+void GameSession::AttachClient(int clientId, SessionClientConnection* conn)
+{
+    auto it = players.find(clientId);
+    if (it != players.end())
+    {
+        // 재접속: 기존 entity에 새 conn 연결
+        it->second->conn = conn;
+        Log::Info("[Session %d] 재접속: clientId=%d", sessionId, clientId);
+    }
+    else
+    {
+        auto pe = std::make_unique<PlayerEntity>(clientId);
+        // 시작 위치: 로비에서 고른 팀의 시작방 spawn 좌표 사용.
+        if (!dungeon.assignedStartRooms.empty())
+        {
+            // 로비 선택 팀 (없으면 0)
+            auto tIt = playerTeamMap.find(clientId);
+            int teamSlot = (tIt != playerTeamMap.end()) ? tIt->second : 0;
+
+            // 같은 팀에 이미 들어와 있는 인원 수 = 이 팀에서의 슬롯(0,1,2)
+            int slotInTeam = 0;
+            for (auto& kv : players)
+            {
+                auto t2 = playerTeamMap.find(kv.first);
+                int otherTeam = (t2 != playerTeamMap.end()) ? t2->second : 0;
+                if (otherTeam == teamSlot) ++slotInTeam;
+            }
+
+            teamSlot = teamSlot % (int)dungeon.assignedStartRooms.size();
+
+            const StartRoom& sr = dungeon.assignedStartRooms[teamSlot];
+            const Vec3& spawn = (slotInTeam < (int)sr.playerSpawnPositions.size())
+                ? sr.playerSpawnPositions[slotInTeam]
+                : sr.teamAnchorPosition;
+            pe->position = Vec3(spawn.x + dungeon.worldOffset.x,
+                spawn.y,
+                spawn.z + dungeon.worldOffset.z);
+            pe->rotY = sr.spawnYawDegrees;
+        }
+        // 이름을 넣어야 다른 클라의 PLAYER_ENTER_VIEW에 표시된다.
+        auto nIt = playerNameMap.find(clientId);
+        if (nIt != playerNameMap.end())
+        {
+            std::strncpy(pe->playerName, nIt->second.c_str(), sizeof(pe->playerName) - 1);
+            pe->playerName[sizeof(pe->playerName) - 1] = '\0';
+        }
+
+        pe->conn = conn;
+        pe->joinedAtMs = duration_cast<milliseconds>(
+            system_clock::now().time_since_epoch()).count();
+        players[clientId] = std::move(pe);
+        everJoined = true;
+        statPlayers.store((int)players.size(), std::memory_order_relaxed);
+        Log::Info("[Session %d] 입장: clientId=%d (현재 %d명) pos=(%.1f, %.1f, %.1f)",
+            sessionId, clientId, (int)players.size(),
+            players[clientId]->position.x,
+            players[clientId]->position.y,
+            players[clientId]->position.z);
+    }
+
+    // 6단계: 시야 처리 활성화.
+    //   - 새 입장자에게: 시야 안 다른 플레이어/몬스터의 ENTER_VIEW 송신
+    //   - 시야 안 다른 플레이어들에게: 새 입장자의 ENTER_VIEW 송신
+    //   - 양쪽 viewedXxx 갱신
+    im.OnPlayerJoin(*this, clientId);
+
+    // 이미 월드에 있는 전리품 컨테이너 + 본인 인벤토리 동기화.
+    loot.SendAllLootTo(*this, clientId);
+
+    // 본인 시작 위치 즉시 알림 (클라가 시작방 좌표로 transform 갱신용).
+    // OnPlayerJoin은 다른 객체 ENTER만 처리. 본인 PLAYER_MOVE는 별도 송신.
+    PlayerEntity* p = players[clientId].get();
+    p->startPosResendTicks = 20;   // 20틱(=1초) 동안 재송신 예약
+    if (p && p->conn && p->conn->active)
+    {
+        long long ts = duration_cast<milliseconds>(
+            system_clock::now().time_since_epoch()).count();
+        PlayerMove pm{};
+        pm.clientId = p->clientId;
+        pm.posX = p->position.x;
+        pm.posY = p->position.y;
+        pm.posZ = p->position.z;
+        pm.rotY = p->rotY;
+        pm.speed = 0.f;
+        pm.animState = 0;
+        pm.timestamp = ts;
+        p->conn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
+    }
+
+    // 전원이 다 붙었으면 여기서 동시에 시작한다.
+    TryStartGame();
+}
+
+// 전원 입장 대기 배리어. force=true면 타임아웃으로 강제 시작.
+void GameSession::TryStartGame(bool force)
+{
+    if (gameStarted.load()) return;
+
+    int joined = (int)players.size();
+    int expected = (int)allowedPlayers.size();
+    if (!force && joined < expected) return;
+
+    gameStarted.store(true);
+    Broadcast((int)PacketType::SESSION_START_GAME, nullptr, 0);
+    Log::Info("[Session %d] 게임 시작 (입장 %d/%d%s)",
+        sessionId, joined, expected, force ? ", 타임아웃 강제" : "");
+}
+
+void GameSession::DetachClient(int clientId)
+{
+    auto it = players.find(clientId);
+    if (it == players.end()) return;
+    it->second->conn = nullptr;     // 먼저 연결 해제 (이후 이 엔티티로의 송신 차단)
+
+    // 시야 안 다른 플레이어들에게 LEAVE_VIEW 송신 + viewedPlayers에서 제거 (엔티티 살아있는 동안)
+    im.OnPlayerLeave(*this, clientId);
+
+    // 엔티티 완전 제거 → 캐릭터가 세션에서 완전히 빠짐 (재접속 미지원 단계).
+    // 몬스터는 targetClientId(int)로 대상을 참조하므로 댕글링 포인터 없음.
+    players.erase(clientId);
+    statPlayers.store((int)players.size(), std::memory_order_relaxed);
+
+    Log::Info("[Session %d] 퇴장(엔티티 제거): clientId=%d", sessionId, clientId);
+}
+
+void GameSession::HandlePacket(int clientId, int packetType,
+    const char* body, int bodySize)
+{
+    PacketType type = static_cast<PacketType>(packetType);
+    switch (type)
+    {
+    case PacketType::PLAYER_INPUT:
+        // dt는 직전 입력과의 시간 차이. 본 단계에선 단순 0.05f 가정.
+        HandlePlayerInput(clientId, body, bodySize, 0.05f);
+        break;
+
+    case PacketType::PLAYER_ATTACK_REQUEST:
+        HandlePlayerAttack(clientId, body, bodySize);
+        break;
+
+    case PacketType::EXTRACTION_REQUEST:
+        HandleExtraction(clientId, body, bodySize);
+        break;
+
+    case PacketType::ITEM_PICKUP_REQUEST:
+        HandleItemPickup(clientId, body, bodySize);
+        break;
+
+    case PacketType::CHAT_SEND:
+        HandleChat(clientId, body, bodySize);
+        break;
+
+    case PacketType::DEBUG_TELEPORT_BOSS:   // [치트] 배포 시 제거
+        HandleDebugTeleportBoss(clientId);
+        break;
+
+    case PacketType::DEBUG_TELEPORT_EXIT:   // [치트] 배포 시 제거
+        HandleDebugTeleportExit(clientId);
+        break;
+
+    default:
+        Log::Warn("[Session %d] 알 수 없는 인게임 패킷 type=%d from cid=%d",
+            sessionId, packetType, clientId);
+        break;
+    }
+}
+
+void GameSession::Broadcast(int packetType, const void* body, int size, int exceptClientId)
+{
+    // v2: 틱 스레드에서만 호출되므로 락이 필요 없다.
+    for (auto& kv : players)
+    {
+        if (kv.first == exceptClientId) continue;
+        if (kv.second->conn && kv.second->conn->active)
+        {
+            kv.second->conn->SendPacket(packetType, body, size);
+        }
+    }
+}
+
+// ============================================================================
+//  내부: PLAYER_INPUT 처리
+// ============================================================================
+
+void GameSession::HandlePlayerInput(int clientId, const char* body, int bodySize, float dt)
+{
+    if (bodySize < (int)sizeof(PlayerInput)) return;
+    const PlayerInput* in = reinterpret_cast<const PlayerInput*>(body);
+
+    PlayerEntity* p = GetPlayer(clientId);
+    if (!p) return;
+    if (!p->IsActiveInWorld()) return;   // 사망/탈출한 플레이어 입력 무시
+
+    // 클라가 보낸 위치를 PositionValidator로 검증.
+    // - 텔레포트 거리 초과 → 직전 위치 유지
+    // - 벽 통과 시도 → 슬라이딩 또는 직전 위치
+    // 클라 walkSpeed=6, sprintSpeed=10. 10을 cap으로 사용.
+    Vec3 attempted(in->posX, in->posY, in->posZ);
+    Vec3 validated = PositionValidator::ValidateMove(
+        dungeon, p->position, attempted, 10.0f, dt);
+
+    p->ApplyInput(validated.x, validated.y, validated.z, in->rotY,
+        in->moveX, in->moveY, in->sprint,
+        in->timestamp, dt);
+}
+
+// ============================================================================
+//  내부: PLAYER_ATTACK_REQUEST 처리 (7단계)
+// ============================================================================
+
+void GameSession::HandlePlayerAttack(int clientId, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(PlayerAttackRequest)) return;
+    const PlayerAttackRequest* req = reinterpret_cast<const PlayerAttackRequest*>(body);
+
+    cr.HandleAttack(*this, clientId, *req);
+}
+
+// ============================================================================
+//  내부: 채팅
+//
+//  채널
+//   CHAT_PARTY : 이 세션(같은 던전)에 있는 전원
+//   CHAT_TEAM  : 같은 팀 슬롯인 인원만
+//   CHAT_ALL   : 세션엔 없는 채널이라 PARTY로 강등한다.
+//
+//  탈출/사망한 플레이어도 결과창에서 대화를 이어갈 수 있어야 하므로
+//  IsActiveInWorld가 아니라 접속 여부만 본다.
+// ============================================================================
+
+void GameSession::HandleChat(int clientId, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(ChatSendRequest)) return;
+    const ChatSendRequest* req = reinterpret_cast<const ChatSendRequest*>(body);
+
+    char text[MAX_CHAT_TEXT];
+    std::memcpy(text, req->text, MAX_CHAT_TEXT);
+    text[MAX_CHAT_TEXT - 1] = '\0';
+    if (text[0] == '\0') return;
+
+    if (players.find(clientId) == players.end()) return;
+
+    int channel = (req->channel == CHAT_TEAM) ? CHAT_TEAM : CHAT_PARTY;
+
+    auto tIt = playerTeamMap.find(clientId);
+    int senderTeam = (tIt != playerTeamMap.end()) ? tIt->second : TEAM_UNASSIGNED;
+
+    ChatMessageData msg{};
+    msg.channel = channel;
+    msg.senderId = clientId;
+    msg.senderTeam = senderTeam;
+    auto nIt = playerNameMap.find(clientId);
+    if (nIt != playerNameMap.end())
+        std::strncpy(msg.senderName, nIt->second.c_str(), sizeof(msg.senderName) - 1);
+    std::strncpy(msg.text, text, sizeof(msg.text) - 1);
+
+    int sent = 0;
+    for (auto& kv : players)
+    {
+        if (channel == CHAT_TEAM && !IsSameTeam(clientId, kv.first)) continue;
+        PlayerEntity& p = *kv.second;
+        if (!p.conn || !p.conn->active) continue;
+        p.conn->SendPacket((int)PacketType::CHAT_MESSAGE, &msg, sizeof(msg));
+        ++sent;
+    }
+
+    Log::Info("[채팅/%s] sid=%d %s: %s (%d명)",
+        channel == CHAT_TEAM ? "팀" : "파티", sessionId, msg.senderName, msg.text, sent);
+}
+
+void GameSession::HandleItemPickup(int clientId, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(ItemPickupRequest)) return;
+    const ItemPickupRequest* req = reinterpret_cast<const ItemPickupRequest*>(body);
+
+    loot.HandlePickupRequest(*this, clientId, *req);
+}
+
+// 몬스터가 죽었을 때 전리품 생성. 전투 코드에서 호출된다.
+void GameSession::OnMonsterKilled(int monsterId, int killerClientId)
+{
+    // 전적 집계 (세션 종료 시 로비 → DB로 넘어간다)
+    if (PlayerEntity* killer = GetPlayer(killerClientId))
+        ++killer->monsterKills;
+
+    auto& monsters = worldSim.GetMonsters();
+    auto it = monsters.find(monsterId);
+    if (it == monsters.end()) return;
+
+    loot.SpawnMonsterLoot(*this, monsterId, it->second->position,
+        it->second->kind, mapSeed);
+}
+
+// ============================================================================
+//  [디버그 치트] 탈출 방 근처로 이동          ※ 배포 시 이 함수 통째로 삭제
+//
+//  위치는 서버가 권위라 클라가 스스로 순간이동하면 PositionValidator가
+//  되돌린다. 그래서 서버가 직접 좌표를 옮기고 PLAYER_MOVE로 통보한다.
+//
+//  착지 지점: 탈출 방의 floorTiles 중 방 중심에 가장 가까운 타일.
+//  bounds 중심을 그대로 쓰면 기둥/장애물(blockedTiles) 위에 낄 수 있다.
+// ============================================================================
+
+void GameSession::HandleDebugTeleportExit(int clientId)
+{
+    if (!DEBUG_ALLOW_TELEPORT) return;
+
+    if (dungeon.exitRoomId < 0)
+    {
+        Log::Warn("[치트] 이 던전에 탈출 방이 없음 (createExitRoom 확인)");
+        return;
+    }
+
+    Vec3 dest;
+    if (!RoomCenterStandPos(dungeon.exitRoomId, dest))
+    {
+        Log::Warn("[치트] 탈출 방 %d 의 바닥 타일을 찾지 못함", dungeon.exitRoomId);
+        return;
+    }
+    DebugTeleportTo(clientId, dest, "탈출 방");
+}
+
+// F10 — 보스 옆으로. 보스가 살아 있으면 그 옆, 없으면 보스 방 중앙.
+void GameSession::HandleDebugTeleportBoss(int clientId)
+{
+    if (!DEBUG_ALLOW_TELEPORT) return;
+
+    for (auto& kv : worldSim.GetMonsters())
+    {
+        const MonsterEntity& m = *kv.second;
+        if (m.kind != MONSTER_BOSS || m.aiState == AI_DEAD) continue;
+
+        Vec3 dest = m.position;
+        dest.x += 3.0f;                 // 몸통에 끼지 않게 옆으로 비켜 세운다
+        DebugTeleportTo(clientId, dest, "보스 옆");
+        return;
+    }
+
+    for (const Room& r : dungeon.rooms)
+    {
+        if (r.type != ROOM_TYPE_BOSS) continue;
+        Vec3 dest;
+        if (!RoomCenterStandPos(r.id, dest)) continue;
+        DebugTeleportTo(clientId, dest, "보스 방");
+        return;
+    }
+
+    Log::Warn("[치트] 살아 있는 보스도, 보스 방도 찾지 못함");
+}
+
+// 방 중심에 가장 가까운 바닥 타일 위 좌표.
+// bounds 중심을 그대로 쓰면 기둥/장애물 위에 낄 수 있어서 타일로 스냅한다.
+bool GameSession::RoomCenterStandPos(int roomId, Vec3& out) const
+{
+    const Room* room = nullptr;
+    for (const Room& r : dungeon.rooms)
+        if (r.id == roomId) { room = &r; break; }
+
+    if (!room || room->floorTiles.empty()) return false;
+
+    float cx = (room->bounds.xMin() + room->bounds.xMax()) * 0.5f;
+    float cz = (room->bounds.zMin() + room->bounds.zMax()) * 0.5f;
+
+    const IntVec3* best = nullptr;
+    float bestDistSq = 0.f;
+    for (const IntVec3& t : room->floorTiles)
+    {
+        float dx = (float)t.x - cx;
+        float dz = (float)t.z - cz;
+        float dsq = dx * dx + dz * dz;
+        if (!best || dsq < bestDistSq) { best = &t; bestDistSq = dsq; }
+    }
+    if (!best) return false;
+
+    out = dungeon.TileToStandPosition(*best);
+    return true;
+}
+
+// 서버가 좌표를 옮기고 PLAYER_MOVE로 통보한다. 클라는 이 좌표로 스냅한다.
+void GameSession::DebugTeleportTo(int clientId, const Vec3& dest, const char* label)
+{
+    PlayerEntity* p = GetPlayer(clientId);
+    if (!p) return;
+    if (!p->IsActiveInWorld())
+    {
+        Log::Warn("[치트] cid=%d 이동 불가 (사망/탈출 상태)", clientId);
+        return;
+    }
+
+    p->position = dest;
+    p->speed = 0.f;
+    p->extractionHoldSec = 0.f;
+    p->startPosResendTicks = 10;        // 클라가 놓치지 않도록 재송신 예약
+
+    if (p->conn && p->conn->active)
+    {
+        long long ts = duration_cast<milliseconds>(
+            system_clock::now().time_since_epoch()).count();
+        PlayerMove pm{};
+        pm.clientId = clientId;
+        pm.posX = dest.x;
+        pm.posY = dest.y;
+        pm.posZ = dest.z;
+        pm.rotY = p->rotY;
+        pm.speed = 0.f;
+        pm.animState = 0;
+        pm.timestamp = ts;
+        p->conn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
+    }
+
+    Log::Warn("[치트] cid=%d %s(으)로 이동: (%.1f, %.1f, %.1f)",
+        clientId, label, dest.x, dest.y, dest.z);
+}
+
+// ============================================================================
+//  내부: 탈출 (서버 권위 판정)
+//
+//  클라는 포탈에서 holdDuration(7초)을 채우면 EXTRACTION_REQUEST를 보낸다.
+//  서버는 이걸 신뢰하지 않고 자체 누적한 체류 시간(extractionHoldSec)으로 검증.
+//  체류 시간은 UpdateExtractionHold가 매 틱 서버 권위 위치 기준으로 갱신한다.
+//
+//  성공 시:
+//   - extracted 플래그 → 이후 시야/전투/몬스터 타겟에서 제외 (IsActiveInWorld)
+//   - 본인에게 EXTRACTION_RESULT, 나머지에게 PLAYER_EXTRACTED
+//   - 다른 클라 화면에서 제거 (OnPlayerLeave → PLAYER_LEAVE_VIEW)
+//   - 남은 인원 0이면 세션 종료
+// ============================================================================
+
+void GameSession::HandleExtraction(int clientId, const char* body, int bodySize)
+{
+    if (bodySize < (int)sizeof(ExtractionRequest)) return;
+
+    PlayerEntity* p = GetPlayer(clientId);
+    if (!p) return;
+
+    ExtractionResult res{};
+    res.itemCount = loot.GetTotalItemCount(clientId);   // 서버 권위 인벤토리 기준
+    res.heldSec = p->extractionHoldSec;
+
+    // 1) 상태 검사 (치트로도 우회 불가 — 죽었거나 이미 나간 건 탈출 불가)
+    if (p->extracted)            res.failReason = EXTRACT_FAIL_ALREADY;
+    else if (p->hp <= 0)         res.failReason = EXTRACT_FAIL_DEAD;
+    else if (DEBUG_INSTANT_EXTRACT)
+    {
+        // [치트] 위치/체류시간 검증 생략
+        res.failReason = EXTRACT_OK;
+        Log::Warn("[치트] cid=%d 즉시 탈출 (위치/시간 검증 생략)", clientId);
+    }
+    else if (dungeon.exitRoomId < 0) res.failReason = EXTRACT_FAIL_NO_EXIT_ROOM;
+    // 2) 위치 검사: 서버 권위 위치가 실제 탈출 방 안인가
+    else if (dungeon.RoomIdAt(p->position) != dungeon.exitRoomId)
+        res.failReason = EXTRACT_FAIL_NOT_IN_ZONE;
+    // 3) 체류 시간 검사: 클라가 보낸 시간이 아니라 서버 누적치로 판정
+    else if (p->extractionHoldSec < EXTRACTION_HOLD_SEC * EXTRACTION_HOLD_TOLERANCE)
+        res.failReason = EXTRACT_FAIL_HOLD_TOO_SHORT;
+    else
+        res.failReason = EXTRACT_OK;
+
+    res.success = (res.failReason == EXTRACT_OK) ? 1 : 0;
+
+    if (p->conn && p->conn->active)
+        p->conn->SendPacket((int)PacketType::EXTRACTION_RESULT, &res, sizeof(res));
+
+    if (!res.success)
+    {
+        Log::Warn("[Session %d] 탈출 거부: cid=%d reason=%d held=%.1fs room=%d(exit=%d)",
+            sessionId, clientId, res.failReason, p->extractionHoldSec,
+            dungeon.RoomIdAt(p->position), dungeon.exitRoomId);
+        return;
+    }
+
+    // 4) 탈출 확정
+    p->extracted = true;
+    im.OnPlayerLeave(*this, clientId);   // 다른 클라 화면에서 제거
+
+    int remaining = 0;
+    for (auto& kv : players)
+        if (kv.second->IsActiveInWorld()) ++remaining;
+
+    PlayerExtracted pe{};
+    pe.clientId = clientId;
+    pe.remainingPlayers = remaining;
+    Broadcast((int)PacketType::PLAYER_EXTRACTED, &pe, sizeof(pe), clientId);
+
+    Log::Info("[Session %d] 탈출 성공: cid=%d held=%.1fs 남은인원=%d",
+        sessionId, clientId, p->extractionHoldSec, remaining);
+
+    CheckSessionEnd();
+}
+
+// 매 틱 호출. 서버 권위 위치 기준으로 탈출 방 체류 시간 누적.
+void GameSession::UpdateExtractionHold(float dt)
+{
+    if (dungeon.exitRoomId < 0) return;
+
+    for (auto& kv : players)
+    {
+        PlayerEntity& p = *kv.second;
+        if (!p.IsActiveInWorld())
+        {
+            p.extractionHoldSec = 0.f;
+            continue;
+        }
+
+        if (dungeon.RoomIdAt(p.position) == dungeon.exitRoomId)
+            p.extractionHoldSec += dt;
+        else
+            p.extractionHoldSec = 0.f;   // 방을 벗어나면 리셋 (클라 UI와 동일)
+    }
+}
+
+// 월드에 남은 인원이 0이면 세션 종료 통보. 중복 송신 방지.
+void GameSession::CheckSessionEnd()
+{
+    if (sessionEndSignaled.load()) return;
+
+    int reason = 0;     // 정상 종료
+    if (players.empty())
+    {
+        // v2: 전원이 접속을 끊으면 세션을 정리한다.
+        // v1은 여기서 return해서 빈 세션이 틱을 돌며 영원히 남았고,
+        // 로비도 방·닉네임 잠금을 풀지 못했다.
+        if (everJoined)                 reason = 1;   // 전원 이탈
+        else if (gameStarted.load())    reason = 3;   // 아무도 안 들어온 채 시작 타임아웃
+        else                            return;       // 아직 입장 대기 중
+    }
+    else
+    {
+        for (auto& kv : players)
+            if (kv.second->IsActiveInWorld()) return;   // 아직 진행 중
+    }
+
+    sessionEndSignaled.store(true);
+
+    SessionEnded se{};
+    se.reason = reason;
+    Broadcast((int)PacketType::SESSION_ENDED, &se, sizeof(se), 0);
+
+    int survivors = 0;
+    for (auto& kv : players)
+        if (kv.second->extracted) ++survivors;
+
+    int total = (int)players.size();
+    Log::Info("[Session %d] 종료: %s (탈출 %d / 전체 %d)", sessionId,
+        reason == 0 ? "전원 탈출/사망" : (reason == 1 ? "전원 접속 종료" : "입장 없음"),
+        survivors, total);
+
+    // 플레이어별 전적을 모아 로비로 넘긴다. 로비가 DB에 한 줄씩 넣는다.
+    long long nowMs = duration_cast<milliseconds>(
+        system_clock::now().time_since_epoch()).count();
+
+    std::vector<IpcPlayerResult> results;
+    results.reserve(players.size());
+    for (auto& kv : players)
+    {
+        const PlayerEntity& p = *kv.second;
+        if (p.playerName[0] == '\0') continue;      // 이름 없으면 DB에서 못 찾는다
+
+        IpcPlayerResult r{};
+        std::strncpy(r.playerName, p.playerName, sizeof(r.playerName) - 1);
+        r.extracted = p.extracted ? 1 : 0;
+        r.playSeconds = (p.joinedAtMs > 0)
+            ? (int)((nowMs - p.joinedAtMs) / 1000)
+            : 0;
+        r.monsterKills = p.monsterKills;
+        r.playerKills = p.playerKills;
+        results.push_back(r);
+
+        if ((int)results.size() >= MAX_SESSION_PLAYERS) break;
+    }
+
+    // 로비에 종료 보고 → 로비가 방 정리 + 클라 상태 복귀 + 전적 저장.
+    // 실패해도 세션 종료 자체는 진행된다 (LobbyReporter가 경고만 남김).
+    if (reporter)
+        reporter->ReportSessionEnded(sessionId, se.reason, total, survivors, results);
+}
+
+void GameSession::AddPlayerKill(int killerClientId)
+{
+    if (PlayerEntity* killer = GetPlayer(killerClientId))
+        ++killer->playerKills;
+}
+
+PlayerEntity* GameSession::GetPlayer(int clientId)
+{
+    auto it = players.find(clientId);
+    if (it == players.end()) return nullptr;
+    return it->second.get();
+}
+
+// ============================================================================
+//  틱 루프 (50ms 주기)
+// ============================================================================
+
+void GameSession::TickLoop()
+{
+    const V2::Config& cfg = V2::Get();
+    constexpr int TICK_MS = 50;
+    const auto tick = milliseconds(TICK_MS);
+    auto last = steady_clock::now();
+    auto next = last + tick;
+
+    while (running)
+    {
+        // tick=sleep  : v1처럼 틱이 끝난 뒤 50ms 기다린다 (일이 길수록 주기가 늘어난다)
+        // tick=precise: 50ms 마감 시각을 기준으로 기다린다 (주기가 일정)
+        if (!cfg.preciseTick) next = steady_clock::now() + tick;
+        WaitUntil(next);
+        if (!running) break;
+
+        auto t0 = steady_clock::now();
+        float dt = duration<float>(t0 - last).count();
+        last = t0;
+
+        {
+            std::unique_lock<std::recursive_mutex> lk(mtx, std::defer_lock);
+            if (!cfg.queueSync) LockTimed(lk);   // 락 모드: v1처럼 틱 전체를 세션 락 안에서
+            else DrainJobs();                    // 큐 모드: 쌓인 입력을 먼저 반영
+            TickStep(dt);
+            FlushSends();
+        }
+
+        // 내부 측정 (회수 스레드가 1초마다 가져간다)
+        unsigned us = (unsigned)duration_cast<microseconds>(steady_clock::now() - t0).count();
+        statTicks.fetch_add(1, std::memory_order_relaxed);
+        statWorkUs.fetch_add(us, std::memory_order_relaxed);
+        statJobs.fetch_add(drainedJobs, std::memory_order_relaxed);
+        drainedJobs = 0;
+        if (us > statMaxUs.load(std::memory_order_relaxed)) statMaxUs.store(us, std::memory_order_relaxed);
+
+        if (cfg.preciseTick)
+        {
+            next += tick;
+            auto now = steady_clock::now();
+            if (next < now) next = now + tick;   // 한 틱 넘게 밀리면 따라잡지 않고 다시 맞춘다
+        }
+    }
+}
+
+// 마감 시각까지 기다린다. 큐 모드면 그 사이 급한 일감(공격·채팅 등)을 바로 처리한다.
+void GameSession::WaitUntil(steady_clock::time_point deadline)
+{
+    const V2::Config& cfg = V2::Get();
+    for (;;)
+    {
+        auto left = deadline - steady_clock::now();
+        if (left <= steady_clock::duration::zero()) return;
+
+        HANDLE hs[2];
+        DWORD n = 0;
+        bool useTimer = cfg.preciseTick && hTimer;
+        if (useTimer)
+        {
+            LARGE_INTEGER due;
+            due.QuadPart = -(LONGLONG)(duration_cast<nanoseconds>(left).count() / 100);  // 상대 시간(100ns 단위)
+            if (due.QuadPart >= 0) due.QuadPart = -1;
+            SetWaitableTimer((HANDLE)hTimer, &due, 0, nullptr, nullptr, FALSE);
+            hs[n++] = (HANDLE)hTimer;
+        }
+        if (hWake) hs[n++] = (HANDLE)hWake;
+        if (n == 0) { std::this_thread::sleep_for(left); return; }
+
+        DWORD timeout = useTimer ? INFINITE
+            : (DWORD)duration_cast<milliseconds>(left + microseconds(999)).count();
+        DWORD r = WaitForMultipleObjects(n, hs, FALSE, timeout);
+        if (!running) return;
+
+        if (r == WAIT_TIMEOUT) continue;                       // 남은 시간 다시 계산
+        if (r == WAIT_FAILED) { std::this_thread::sleep_for(left); return; }
+        if (useTimer && r == WAIT_OBJECT_0) return;            // 마감 도달
+        if (hWake && r == WAIT_OBJECT_0 + (n - 1) && cfg.queueSync)
+        {
+            wakePending.store(false, std::memory_order_release);  // 꺼내기 전에 내려야 새 신호를 놓치지 않는다
+            // 마감 2ms 전이면 틱 시작 때 같이 처리한다 (급한 일감이 틱을 밀어내지 않게)
+            if (deadline - steady_clock::now() > milliseconds(2))
+            {
+                DrainJobs();                                   // 급한 일감
+                FlushSends();
+            }
+        }
+    }
+}
+
+void GameSession::TickStep(float dt)
+{
+    std::vector<WorldSimulation::AttackEvent> attackEvents;
+    std::vector<MonsterAttackEvent>           attackPackets;
+    std::vector<PlayerDied>                   deathPackets;
+
+    // v2: 틱 스레드 혼자 세션을 소유하므로 락 없이 진행한다.
+    {
+        // 0) 전원 입장 전에는 월드를 멈춘다. (먼저 들어온 사람만 맞고 시간이 흐르는 것 방지)
+        //    시야 갱신은 그대로 해서 서로 보이게 두고, AI/탈출/종료 판정만 보류한다.
+        if (!gameStarted.load())
+        {
+            preStartElapsed += dt;
+            if (preStartElapsed >= START_TIMEOUT_SEC) TryStartGame(true);
+            im.UpdateAll(*this);
+            return;
+        }
+
+        // 1) 몬스터 AI (위치 갱신 + 공격 결정)
+        worldSim.Step(dt, players, dungeon, attackEvents);
+
+        // 2) 몬스터 공격 결과 처리: 플레이어 HP 차감 + 패킷 데이터 준비
+        for (const auto& ev : attackEvents)
+        {
+            auto it = players.find(ev.victimClientId);
+            if (it == players.end()) continue;
+            PlayerEntity& victim = *it->second;
+            if (victim.hp <= 0) continue;
+
+            victim.hp -= ev.damage;
+            if (victim.hp < 0) victim.hp = 0;
+
+            // 7단계 후속: 몬스터 → 플레이어 공격 로그 (콘솔에서 추적 가능)
+            Log::Info("[MonsterAttack] mid=%d hit cid=%d dmg=%d hpAfter=%d%s",
+                ev.monsterId, ev.victimClientId, ev.damage, victim.hp,
+                victim.hp <= 0 ? " [PLAYER_DIED]" : "");
+
+            MonsterAttackEvent mae{};
+            mae.monsterId = ev.monsterId;
+            mae.victimClientId = ev.victimClientId;
+            mae.damage = ev.damage;
+            mae.victimHpAfter = victim.hp;
+            attackPackets.push_back(mae);
+
+            if (victim.hp <= 0)
+            {
+                PlayerDied pd{};
+                pd.victimId = ev.victimClientId;
+                pd.killerId = -ev.monsterId;       // 음수 = 몬스터 ID
+                deathPackets.push_back(pd);
+            }
+        }
+
+        // 2-a) 탈출 방 체류 시간 누적 (서버 권위 위치 기준).
+        //      EXTRACTION_REQUEST가 오면 이 값으로 검증한다.
+        UpdateExtractionHold(dt);
+
+        // 2-b) 원거리 투사체 이동 + 충돌 처리 (활/총).
+        //      벽/몬스터/플레이어 명중 시 데미지 + 소멸 패킷을 자체 broadcast.
+        projSystem.Update(*this, dt);
+
+        // 본인 시작 위치 재송신 (원격 클라는 active가 늦게 켜져 단발 송신을 놓침)
+        for (auto& kv : players)
+        {
+            PlayerEntity& pe = *kv.second;
+            if (pe.startPosResendTicks > 0 && pe.conn && pe.conn->active)
+            {
+                long long ts = duration_cast<milliseconds>(
+                    system_clock::now().time_since_epoch()).count();
+                PlayerMove pm{};
+                pm.clientId = pe.clientId;
+                pm.posX = pe.position.x;
+                pm.posY = pe.position.y;
+                pm.posZ = pe.position.z;
+                pm.rotY = pe.rotY;
+                pm.speed = 0.f;
+                pm.animState = 0;
+                pm.timestamp = ts;
+                pe.conn->SendPacket((int)PacketType::PLAYER_MOVE, &pm, sizeof(pm));
+                pe.startPosResendTicks--;
+            }
+        }
+
+        // 3) 시야 갱신 + ENTER/LEAVE/MOVE 패킷 송신.
+        //    각 플레이어의 viewedXxx를 새 시야와 비교하여 차이를 처리.
+        //    PLAYER_MOVE/MONSTER_MOVE는 시야 안 클라에게만 송신 (대역폭 절약).
+        im.UpdateAll(*this);
+
+        // 4) 전원 탈출/사망 여부 확인 (사망으로 세션이 끝나는 경우 포함).
+        CheckSessionEnd();
+    }
+
+    // 시야 무관한 중요 이벤트는 전체 broadcast (몬스터 공격, 사망).
+    for (const auto& mae : attackPackets)
+        Broadcast((int)PacketType::MONSTER_ATTACK_EVENT, &mae, sizeof(mae), 0);
+    for (const auto& pd : deathPackets)
+        Broadcast((int)PacketType::PLAYER_DIED, &pd, sizeof(pd), 0);
+}
