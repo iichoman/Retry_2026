@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 288e38f9433e3bb48bfb9d76eebfb161, type: 3}
+  m_Name: New UI Texture Set
+  m_EditorClassIdentifier: Assembly-CSharp::UITextureSet
+  panelSprite: {fileID: 0}
+  panelFallbackColor: {r: 0.08, g: 0.08, b: 0.09, a: 0.9}
+  slotSprite: {fileID: 0}
+  selectedSlotSprite: {fileID: 0}
+  slotFallbackColor: {r: 0.18, g: 0.18, b: 0.2, a: 1}
+  selectedSlotFallbackColor: {r: 0.9, g: 0.72, b: 0.28, a: 1}
+  hpBarBackgroundSprite: {fileID: 0}
+  hpBarFillSprite: {fileID: 0}
+  hpBarBackgroundFallbackColor: {r: 0.08, g: 0.08, b: 0.08, a: 1}
+  hpBarFillFallbackColor: {r: 0.75, g: 0.08, b: 0.08, a: 1}
+  missingIconSprite: {fileID: 0}
+  missingIconFallbackColor: {r: 0.7, g: 0.7, b: 0.7, a: 1}
