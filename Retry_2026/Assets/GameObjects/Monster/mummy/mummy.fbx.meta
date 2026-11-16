@@ -35,7 +35,7 @@ ModelImporter:
       takeName: Scene
       internalID: -623603649343465320
       firstFrame: 1
-      lastFrame: 215
+      lastFrame: 240
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
@@ -58,11 +58,11 @@ ModelImporter:
       transformMask: []
       maskType: 3
       maskSource: {instanceID: 0}
-      additiveReferencePoseFrame: 0
+      additiveReferencePoseFrame: 1
     - serializedVersion: 16
       name: mummy_rangeAttack
       takeName: Scene
-      internalID: -8800838248204228948
+      internalID: -1609281748187839663
       firstFrame: 1
       lastFrame: 94
       wrapMode: 0
@@ -120,9 +120,38 @@ ModelImporter:
     - serializedVersion: 16
       name: mummy_walk
       takeName: Scene
-      internalID: 4492889366653965390
+      internalID: 8527267456721176387
       firstFrame: 131
       lastFrame: 215
+      wrapMode: 0
+      orientationOffsetY: 0
+      level: 0
+      cycleOffset: 0
+      loop: 0
+      hasAdditiveReferencePose: 0
+      loopTime: 0
+      loopBlend: 0
+      loopBlendOrientation: 0
+      loopBlendPositionY: 0
+      loopBlendPositionXZ: 0
+      keepOriginalOrientation: 0
+      keepOriginalPositionY: 1
+      keepOriginalPositionXZ: 0
+      heightFromFeet: 0
+      mirror: 0
+      bodyMask: 01000000010000000100000001000000010000000100000001000000010000000100000001000000010000000100000001000000
+      curves: []
+      events: []
+      transformMask: []
+      maskType: 3
+      maskSource: {instanceID: 0}
+      additiveReferencePoseFrame: 1
+    - serializedVersion: 16
+      name: mummy_die
+      takeName: Scene
+      internalID: -626948583029366203
+      firstFrame: 221
+      lastFrame: 240
       wrapMode: 0
       orientationOffsetY: 0
       level: 0
