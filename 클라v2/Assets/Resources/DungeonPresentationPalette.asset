@@ -1,0 +1,39 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 44d735e25e7c4d56806411caa71047b8, type: 3}
+  m_Name: DungeonPresentationPalette
+  m_EditorClassIdentifier: Assembly-CSharp::DungeonPresentationPalette
+  themes:
+  - style: 0
+    stone: {fileID: 2100000, guid: 120c697763a31e94aac54ed26dd42d60, type: 2}
+    border: {fileID: 2100000, guid: 40155260fb4e07b49a8f171565b7a435, type: 2}
+    accent: {fileID: 2100000, guid: 5edd0fe93e1ef9b42b19cfa62d419abf, type: 2}
+  - style: 1
+    stone: {fileID: 2100000, guid: 752e1bbdeda22dd479ede37d94401c48, type: 2}
+    border: {fileID: 2100000, guid: b5afd151278f6904fb0fb5c929eb5ce1, type: 2}
+    accent: {fileID: 2100000, guid: de14eaf850428814d9dcb5e82dec76e2, type: 2}
+  - style: 2
+    stone: {fileID: 2100000, guid: 3e8369152bd31f248bac841fb52c1d78, type: 2}
+    border: {fileID: 2100000, guid: cf59425127198344b8d8a316b37f71b4, type: 2}
+    accent: {fileID: 2100000, guid: a128ffb9f8119cc4c93ea822b662d99b, type: 2}
+  - style: 3
+    stone: {fileID: 2100000, guid: 57a35e10d7a32fd4f9c218aea707f5f5, type: 2}
+    border: {fileID: 2100000, guid: 83b8cb0acbc10774cadfdab186355c9a, type: 2}
+    accent: {fileID: 2100000, guid: bfedf5c4e18e7344ea36d504f096bf0f, type: 2}
+  - style: 4
+    stone: {fileID: 2100000, guid: 8eb7781a463713545ab19ded5b779b85, type: 2}
+    border: {fileID: 2100000, guid: 417742109d0cd8b4c9c6cef90217d1d7, type: 2}
+    accent: {fileID: 2100000, guid: 996ec357618b5aa45bad8045ad3c44ef, type: 2}
+  - style: 5
+    stone: {fileID: 2100000, guid: 4181253cbbb518741b29dd7dc11a4a8e, type: 2}
+    border: {fileID: 2100000, guid: c62a96f507497f1448b548f93aea45c6, type: 2}
+    accent: {fileID: 2100000, guid: c9dcc9e203bfcb442b44de6e3aa30d48, type: 2}

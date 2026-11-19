@@ -1,0 +1,35 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 685abc03f49b46a2b4803f2b375ab21e, type: 3}
+  m_Name: DungeonPropPalette
+  m_EditorClassIdentifier: Assembly-CSharp::DungeonPropPalette
+  entries:
+  - kind: 0
+    prefab: {fileID: 4152264048757013276, guid: 2bb3a0ebb3c219649a5c27451d7986c6, type: 3}
+  - kind: 1
+    prefab: {fileID: 5592319517183999869, guid: 6da3a677c95f6004e92fd77fec71d014, type: 3}
+  - kind: 2
+    prefab: {fileID: 1411232587694485454, guid: 61811c15141413a4da8311b626a167c1, type: 3}
+  - kind: 3
+    prefab: {fileID: 3099038082602408215, guid: 6d69e2598a5c9eb438d29e9e6100e4f3, type: 3}
+  - kind: 4
+    prefab: {fileID: 2981882885131816239, guid: 5981f340f00154a43b6e7f4ee86e3fcb, type: 3}
+  - kind: 5
+    prefab: {fileID: 7655744092383975513, guid: c592a8ba01cdd9245befccf3443d9435, type: 3}
+  - kind: 6
+    prefab: {fileID: 7809325821568966226, guid: 005749358092dc64196b4e95f188593a, type: 3}
+  - kind: 7
+    prefab: {fileID: 8482652077710396837, guid: 5f3908dbcccf17e4aa2613b47caf7528, type: 3}
+  - kind: 8
+    prefab: {fileID: 2143563223993430893, guid: 5ef08d096a6081241ad17e3a0b404db3, type: 3}
+  - kind: 9
+    prefab: {fileID: 352455743543080899, guid: 847c6d15ff1aab1489e93ea1357aa662, type: 3}

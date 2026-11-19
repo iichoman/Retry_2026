@@ -1,0 +1,32 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: c4b1d97aaa2d44d0b2e40eb3c6bbd981, type: 3}
+  m_Name: beam_sword
+  m_EditorClassIdentifier: Assembly-CSharp::EquipmentItemData
+  itemId: beam_sword
+  displayName: "\uAD11\uC120\uAC80"
+  itemType: 1
+  icon: {fileID: 21300000, guid: 62a9fca9f2c05264e9f32022f4dedfbe, type: 3}
+  slotBackground: {fileID: 0}
+  fallbackIconColor: {r: 1, g: 1, b: 1, a: 1}
+  maxStack: 1
+  description: "\uD3EC\uC2A4\uAC00 \uD568\uAED8\uD558\uAE38.\n\uACF5\uACA9\uB825
+    16\n\uACF5\uACA9 \uC18D\uB3C4 +65%"
+  rarity: 2
+  extractionValue: 400
+  bossExclusive: 0
+  questOnly: 0
+  equipmentSlot: 0
+  weaponId: test_sword
+  maxHpBonus: 0
+  attackBonus: 0
+  defenseBonus: 0

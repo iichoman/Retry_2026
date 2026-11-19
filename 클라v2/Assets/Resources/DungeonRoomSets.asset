@@ -1,0 +1,51 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: a3f41d3d0d26c9b41835c4185495c0e7, type: 3}
+  m_Name: DungeonRoomSets
+  m_EditorClassIdentifier: Assembly-CSharp::DungeonRoomSets
+  sets:
+  - label: Barracks
+    banner: {fileID: 328998948171411463, guid: 27b37ff36f806de4ba82d3bd592147d8, type: 3}
+    feature: {fileID: 919754681232920104, guid: deee50ad9feb7794e943b2134c7d85c8, type: 3}
+    moss: 0
+  - label: Library
+    banner: {fileID: 7182628209763795139, guid: a71f181f003fd304eb84daa4666ce871, type: 3}
+    feature: {fileID: 3793823796000596386, guid: 1df4d01fc82ba084fa8dd1722dbfb6a0, type: 3}
+    moss: 0
+  - label: Cloister
+    banner: {fileID: 7182628209763795139, guid: a71f181f003fd304eb84daa4666ce871, type: 3}
+    feature: {fileID: 586417537510559897, guid: 91c5750a55f485b46804a0e2057b2528, type: 3}
+    moss: 0
+  - label: RuinedChapel
+    banner: {fileID: 1560968191640035926, guid: 11954e0731628ce41bd896b374065d1e, type: 3}
+    feature: {fileID: 7829310920596838410, guid: cd87ac46eefe5fa42b271d08a1f440ff, type: 3}
+    moss: 1
+  - label: GuardianArena
+    banner: {fileID: 328998948171411463, guid: 27b37ff36f806de4ba82d3bd592147d8, type: 3}
+    feature: {fileID: 4166427912107590868, guid: d5b48e17d6622e047a46f15b34af6f8e, type: 3}
+    moss: 0
+  - label: TreasureVault
+    banner: {fileID: 1560968191640035926, guid: 11954e0731628ce41bd896b374065d1e, type: 3}
+    feature: {fileID: 1075099583605441350, guid: a2d0e2ab23c6910428e372b2702b1d87, type: 3}
+    moss: 0
+  - label: ExtractionSanctum
+    banner: {fileID: 7182628209763795139, guid: a71f181f003fd304eb84daa4666ce871, type: 3}
+    feature: {fileID: 2306148340420962450, guid: ce2e74be9c4e1734daf38416db1a5dec, type: 3}
+    moss: 0
+  - label: ArrivalHall
+    banner: {fileID: 328998948171411463, guid: 27b37ff36f806de4ba82d3bd592147d8, type: 3}
+    feature: {fileID: 4936708736555765480, guid: 629dbc599c13c6847b925f1af16bfe64, type: 3}
+    moss: 0
+  moss: {fileID: 3420875394154091113, guid: 7195fc6f494b8a94ea1dc1fa43b11127, type: 3}
+  largeBush: {fileID: 6488794139089810073, guid: 34f1346f872cc9c45877cfc9023df321, type: 3}
+  smallBush: {fileID: 8372724970197431662, guid: 8c0b2c16ead4f4849bc35aa8fe6e0eab, type: 3}
+  hangingBush: {fileID: 6724045072990194871, guid: 311e91bfdea58f240945c41d02750e67, type: 3}

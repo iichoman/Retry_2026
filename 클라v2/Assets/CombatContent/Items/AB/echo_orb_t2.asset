@@ -1,0 +1,28 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ea3f637b0a377741b99a073d843d68e, type: 3}
+  m_Name: echo_orb_t2
+  m_EditorClassIdentifier: Assembly-CSharp::ItemData
+  itemId: echo_orb_t2
+  displayName: "\uBA54\uC544\uB9AC \uC218\uC815 2\uB4F1\uAE09"
+  itemType: 6
+  icon: {fileID: 21300000, guid: 02fe85730885f47418d8e6dd4b764b92, type: 3}
+  slotBackground: {fileID: 0}
+  fallbackIconColor: {r: 1, g: 1, b: 1, a: 1}
+  maxStack: 1
+  description: "\uC2A4\uD0AC \uC9C1\uC811 \uD0C0\uACA9\uC73C\uB85C \uCC98\uCE58 \uC2DC
+    E \uCFE8\uD0C0\uC784 \uCD08\uAE30\uD654. \uBC1C\uB3D9 \uAC04\uACA9 16\uCD08.
+    Q\uB294 \uCD08\uAE30\uD654\uD558\uC9C0 \uC54A\uC74C."
+  rarity: 2
+  extractionValue: 200
+  bossExclusive: 0
+  questOnly: 0
