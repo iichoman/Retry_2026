@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using UnityEngine;
 
 public enum MonsterType
@@ -38,6 +38,7 @@ public class Monster_State : MonoBehaviour, IDamageable
     public int Defense => defense;
     public bool IsDead { get; private set; }
     public bool IsHit { get; private set; }
+    public bool IsNetworkBoss { get; set; }
 
     private bool hitAnimationRequested;
     private bool hitAnimationInProgress;
@@ -52,6 +53,9 @@ public class Monster_State : MonoBehaviour, IDamageable
 
     private void Start()
     {
+        if(monsterType==MonsterType.Elite&&GetComponent<KnightHeavyAttack>()==null)gameObject.AddComponent<KnightHeavyAttack>();
+        if (monsterType == MonsterType.Elite && GetComponent<EliteMonsterOutline>() == null)
+            gameObject.AddComponent<EliteMonsterOutline>();
         HpChanged?.Invoke(CurrentHp, maxHp);
     }
 
@@ -71,11 +75,13 @@ public class Monster_State : MonoBehaviour, IDamageable
 
     public void TakeDamage(int damage, GameObject attacker)
     {
+        if (NetworkRuntime.IsOnline) return;
         if (IsDead)
         {
             return;
         }
 
+        if(monsterType!=MonsterType.Boss)MonsterHitFlash.Play(gameObject);
         int finalDamage = Mathf.Max(1, damage - defense);
         CurrentHp = Mathf.Max(0, CurrentHp - finalDamage);
         HpChanged?.Invoke(CurrentHp, maxHp);
@@ -155,11 +161,23 @@ public class Monster_State : MonoBehaviour, IDamageable
 
     private void RequestHit()
     {
+        // Ordinary hit reactions must not delay an authoritative attack animation. Stun/death remain authoritative.
+        if(NetworkRuntime.IsOnline && GetComponent<Monster_Attack>()?.IsAttacking==true)return;
         IsHit = true;
         hitAnimationRequested = true;
         hitAnimationInProgress = false;
         hitFallbackTimer = hitStunDuration;
     }
+
+    public void ApplyOfflineParryStun()
+    {
+        if (NetworkRuntime.IsOnline || IsDead || monsterType == MonsterType.Boss || IsNetworkBoss) return;
+        GetComponent<Monster_Attack>()?.CancelAttack();
+        RequestHit();
+        (GetComponent<StunReactionView>()??gameObject.AddComponent<StunReactionView>()).StunOffline(.75f);
+    }
+
+    public void ClearNetworkHitForAttack(){if(NetworkRuntime.IsOnline)EndHit();}
 
     private void EndHit()
     {
@@ -171,6 +189,7 @@ public class Monster_State : MonoBehaviour, IDamageable
 
     private void RequestDeath()
     {
+        GetComponent<MonsterAlertEffect>()?.Hide();
         deathAnimationRequested = true;
     }
 
@@ -189,7 +208,7 @@ public class Monster_State : MonoBehaviour, IDamageable
         HpChanged?.Invoke(CurrentHp, maxHp);
 
         if (CurrentHp <= 0) { NetworkDie(); return; }
-        if (damaged) RequestHit();
+        if (damaged && !IsNetworkBoss) RequestHit();
     }
 
     // 서버 사망 통보: 죽음 애니 재생. 엔티티(시체)는 삭제하지 않고 그대로 둔다.

@@ -92,7 +92,7 @@ public class LootContainer : MonoBehaviour, IPickupable
 
     public bool TryTakeSlot(int slotIndex, PlayerInventory targetInventory, int amount = int.MaxValue)
     {
-        if (!available || targetInventory == null || !IsValidSlotIndex(slotIndex) || amount <= 0)
+        if (!available || targetInventory == null || targetInventory.IsServerOwned || !IsValidSlotIndex(slotIndex) || amount <= 0)
         {
             return false;
         }

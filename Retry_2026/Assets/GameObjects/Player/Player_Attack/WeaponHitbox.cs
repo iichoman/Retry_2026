@@ -9,6 +9,10 @@ public class WeaponHitbox : MonoBehaviour
     [SerializeField] private Collider hitboxCollider;
     [SerializeField] private List<WeaponSwingTrail> swingTrails = new List<WeaponSwingTrail>();
     [SerializeField] private bool ensureKinematicRigidbody = true;
+    [Header("Heavy cleave (server box dimensions)")]
+    [SerializeField] private bool forwardCleave;
+    [SerializeField] private float cleaveLength = 3.5f;
+    [SerializeField] private float cleaveWidth = 3f;
 
     private readonly HashSet<IDamageable> hitTargets = new HashSet<IDamageable>();
     private Player_Attack owner;
@@ -54,6 +58,7 @@ public class WeaponHitbox : MonoBehaviour
         Debug.Log($"[{name}] Swing started.", this);
         BeginSwingTrails();
         SetHitboxActive(true);
+        SampleCleave();
     }
 
     public void EndSwing()
@@ -75,12 +80,26 @@ public class WeaponHitbox : MonoBehaviour
 
         if (hitboxCollider != null)
         {
-            hitboxCollider.enabled = active;
+            hitboxCollider.enabled = active && !forwardCleave;
         }
+    }
+
+    private void FixedUpdate() => SampleCleave();
+
+    private void SampleCleave()
+    {
+        if (!forwardCleave || !canHit || owner == null || NetworkRuntime.IsOnline) return;
+        var root = owner.transform;
+        // Include all targets already in the box when the impact window opens, once per swing.
+        foreach (var target in Physics.OverlapBox(root.position + Vector3.up + root.forward * (cleaveLength * .5f),
+            new Vector3(cleaveWidth * .5f, 1.25f, cleaveLength * .5f), root.rotation, targetLayers, QueryTriggerInteraction.Ignore))
+            OnTriggerEnter(target);
     }
 
     private void OnTriggerEnter(Collider other)
     {
+        // Local swing geometry is presentation; online damage/impact comes from COMBAT_EVENT.
+        if (NetworkRuntime.IsOnline) return;
         if (!canHit)
         {
             return;
@@ -114,9 +133,14 @@ public class WeaponHitbox : MonoBehaviour
         }
 
         int damage = owner != null && owner.CurrentAttackDamage > 0 ? owner.CurrentAttackDamage : fallbackDamage;
-        damageable.TakeDamage(damage, owner != null ? owner.gameObject : gameObject);
-        PlayHitEffect(other);
         hitTargets.Add(damageable);
+        GameObject source = owner != null ? owner.gameObject : gameObject;
+        if (damageable is Player_State player)
+        {
+            if (!player.TryTakeMeleeDamage(damage, source)) return;
+        }
+        else damageable.TakeDamage(damage, source);
+        PlayHitEffect(other);
 
         Debug.Log($"Weapon hit: name={other.gameObject.name}, id={other.GetInstanceID()}", other);
     }
@@ -130,9 +154,11 @@ public class WeaponHitbox : MonoBehaviour
         }
 
         Vector3 sourcePosition = owner != null ? owner.transform.position : transform.position;
-        Vector3 hitPoint = other.ClosestPoint(transform.position);
-        Vector3 hitNormal = hitPoint - sourcePosition;
-        Vector3 resolvedNormal = hitNormal.sqrMagnitude > 0.001f ? hitNormal.normalized : transform.forward;
+        // The blade is often already inside the collider, where ClosestPoint returns
+        // the interior point unchanged. Project from outside and emit toward the attacker.
+        Vector3 hitNormal = sourcePosition - other.bounds.center;
+        Vector3 resolvedNormal = hitNormal.sqrMagnitude > 0.001f ? hitNormal.normalized : -transform.forward;
+        Vector3 hitPoint = other.ClosestPoint(other.bounds.center + resolvedNormal * (other.bounds.size.magnitude + 1f));
 
         if (effectReceiver != null)
         {

@@ -14,6 +14,8 @@ public sealed class GameMinimapUI : MonoBehaviour
     private readonly List<Image> markerViews = new List<Image>();
 
     private RectTransform root;
+    private GameObject abPanel;
+    private int abMapTier=3;
     private RectTransform mapRoot;
     private Room currentRoom;
     private StartRoom currentStartRoom;
@@ -49,8 +51,11 @@ public sealed class GameMinimapUI : MonoBehaviour
         RefreshNow(true);
     }
 
-    private void OnDisable()
+    // Keep the lightweight generation subscription while F11 hides the view. Otherwise
+    // a regenerated dungeon could retain the previous session's explored rooms/bounds.
+    private void OnDestroy()
     {
+        if(floorTexture!=null)Destroy(floorTexture);
         if (subscribedDungeon != null)
         {
             subscribedDungeon.DungeonGenerated -= HandleDungeonGenerated;
@@ -120,7 +125,21 @@ public sealed class GameMinimapUI : MonoBehaviour
         visitedRoomIds.Clear();
         hasMapBounds = false;
         HideAllRooms();
-        RefreshNow(true);
+        if (isActiveAndEnabled) RefreshNow(true);
+    }
+
+    public void SetPlayer(Transform localPlayer)
+    {
+        if (player == localPlayer) return;
+        player = localPlayer;
+        currentRoom = null;
+        currentStartRoom = null;
+        visitedRoomIds.Clear();
+        hasMapBounds = false;
+        HideAllRooms();
+        markerUseCount = 0;
+        EndMarkers();
+        if (isActiveAndEnabled) RefreshNow(true);
     }
 
     private void Build()
@@ -142,6 +161,7 @@ public sealed class GameMinimapUI : MonoBehaviour
         root.offsetMax = Vector2.zero;
 
         GameObject panelObject = CreateUIObject("Minimap Panel", transform);
+        abPanel=panelObject;
         RectTransform panel = panelObject.GetComponent<RectTransform>();
         panel.anchorMin = Vector2.one;
         panel.anchorMax = Vector2.one;
@@ -191,6 +211,14 @@ public sealed class GameMinimapUI : MonoBehaviour
 
     private void RefreshNow(bool forceActors)
     {
+        var ab=ABClient.Active;
+        abMapTier=3;
+        if(ab!=null && ab.Supported){
+            var item=ABItemDefinitions.Find(ab.State.passive);
+            abMapTier=item!=null && item.kind==1 && item.effect==14 ? item.tier : 0;
+        }
+        if(abPanel!=null)abPanel.SetActive(true);
+
         nextRefreshTime = Time.unscaledTime + refreshInterval;
         ResolveReferences();
         SubscribeToDungeon();
@@ -226,9 +254,31 @@ public sealed class GameMinimapUI : MonoBehaviour
             return;
         }
 
-        mapRoot.localEulerAngles = new Vector3(0f, 0f, player.eulerAngles.y);
+        mapRoot.localRotation = Quaternion.identity;
     }
 
+    private Texture2D floorTexture;
+    private RawImage floorImage;
+    private void BuildFloorplan()
+    {
+        if(floorTexture!=null)Destroy(floorTexture);
+        int width=Mathf.CeilToInt(mapMaxX-mapMinX),height=Mathf.CeilToInt(mapMaxZ-mapMinZ);
+        floorTexture=new Texture2D(width,height,TextureFormat.RGBA32,false);
+        floorTexture.filterMode=FilterMode.Point;
+        var pixels=new Color32[width*height];
+        void Paint(IEnumerable<Vector3Int> tiles) {
+            foreach(var t in tiles){int x=t.x-(int)mapMinX,z=t.z-(int)mapMinZ;
+                if(x>=0&&z>=0&&x<width&&z<height)pixels[z*width+x]=new Color32(86,112,124,220);}
+        }
+        foreach(var room in dungeon.Rooms)Paint(room.floorTiles);
+        foreach(var corridor in dungeon.Corridors)Paint(corridor.floorTiles);
+        floorTexture.SetPixels32(pixels);floorTexture.Apply();
+        if(floorImage==null){floorImage=CreateUIObject("Full floorplan",mapRoot).AddComponent<RawImage>();floorImage.raycastTarget=false;}
+        floorImage.transform.SetAsFirstSibling();floorImage.texture=floorTexture;
+        var min=TileToMap(mapMinX,mapMinZ);var max=TileToMap(mapMaxX,mapMaxZ);
+        floorImage.rectTransform.sizeDelta=max-min;
+        floorImage.rectTransform.anchoredPosition=(min+max)*.5f;
+    }
     private void RebuildMapBounds()
     {
         bool foundAny = false;
@@ -254,6 +304,7 @@ public sealed class GameMinimapUI : MonoBehaviour
         mapMinZ = minZ;
         mapMaxZ = Mathf.Max(minZ + 1, maxZ);
         hasMapBounds = foundAny;
+        if(foundAny)BuildFloorplan();
     }
 
     private static void IncludeBounds(BoundsInt bounds, ref bool foundAny, ref int minX, ref int maxX, ref int minZ, ref int maxZ)
@@ -313,16 +364,13 @@ public sealed class GameMinimapUI : MonoBehaviour
 
     private void DrawVisitedRooms()
     {
+        var ab=ABClient.Active;
         HideAllRooms();
 
         IReadOnlyList<Room> rooms = dungeon.Rooms;
         for (int i = 0; i < rooms.Count; i++)
         {
             Room room = rooms[i];
-            if (!visitedRoomIds.Contains(room.id))
-            {
-                continue;
-            }
 
             DrawRoom(room.id, room.bounds, room.type, room == currentRoom);
         }
@@ -332,10 +380,6 @@ public sealed class GameMinimapUI : MonoBehaviour
         {
             StartRoom startRoom = startRooms[i];
             int id = GetStartRoomId(startRoom);
-            if (!visitedRoomIds.Contains(id))
-            {
-                continue;
-            }
 
             DrawRoom(id, startRoom.bounds, RoomType.Start, startRoom == currentStartRoom);
         }
@@ -395,14 +439,14 @@ public sealed class GameMinimapUI : MonoBehaviour
 
         if (currentRoom == null)
         {
-            DrawMarker(player.position, new Color(0.95f, 0.98f, 1f, 1f), new Vector2(8f, 8f), 0f);
+            DrawMarker(player.position, new Color(0.95f, 0.98f, 1f, 1f), new Vector2(5f, 10f), -player.eulerAngles.y);
             EndMarkers();
             return;
         }
 
-        DrawMarker(player.position, new Color(0.95f, 0.98f, 1f, 1f), new Vector2(8f, 8f), 0f);
+        DrawMarker(player.position, new Color(0.95f, 0.98f, 1f, 1f), new Vector2(5f, 10f), -player.eulerAngles.y);
 
-        for (int i = 0; i < cachedMonsters.Length; i++)
+        for (int i = 0; i < (abMapTier>=3?cachedMonsters.Length:0); i++)
         {
             Monster monster = cachedMonsters[i];
             if (monster == null || monster.State == null || monster.State.IsDead || !PositionIsInCurrentRoom(monster.transform.position))

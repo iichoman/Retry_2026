@@ -1,20 +1,75 @@
-using UnityEngine;
+ï»¿using UnityEngine;
+
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+
+[StructLayout(LayoutKind.Sequential,Pack=1)]
+public struct PositionSyncState {
+    public int version,serial;
+    public long inputTimestamp;
+    public float x,y,z;
+    public int teleport;
+}
 
 // ============================================================================
 //  LocalPlayerInputSender
 //
-//  º»ÀÎ Ä³¸¯ÅÍ¿¡ ÀÚµ¿À¸·Î ºÙÀ½ (NetworkBootstrapÀÌ AddComponent).
-//  50ms¸¶´Ù PLAYER_INPUT ÆĞÅ¶À» SessionClient·Î ¼Û½Å.
+//  ë³¸ì¸ ìºë¦­í„°ì— ìë™ìœ¼ë¡œ ë¶™ìŒ (NetworkBootstrapì´ AddComponent).
+//  50msë§ˆë‹¤ PLAYER_INPUT íŒ¨í‚·ì„ SessionClientë¡œ ì†¡ì‹ .
 //
-//  Phase 1 (ÇöÀç): Å¬¶ó°¡ °áÁ¤ÇÑ º»ÀÎ À§Ä¡ (transform.position)¸¦
-//                  ¼­¹ö°¡ ±×´ë·Î ½Å·Ú. CharacterController·Î ÀÌµ¿/Ãæµ¹ Ã³¸®.
+//  Phase 1 (í˜„ì¬): í´ë¼ê°€ ê²°ì •í•œ ë³¸ì¸ ìœ„ì¹˜ (transform.position)ë¥¼
+//                  ì„œë²„ê°€ ê·¸ëŒ€ë¡œ ì‹ ë¢°. CharacterControllerë¡œ ì´ë™/ì¶©ëŒ ì²˜ë¦¬.
 //
-//  ÁÖÀÇ: º» ÄÄÆ÷³ÍÆ®´Â º»ÀÎ Ä³¸¯ÅÍ(LocalPlayer)¿¡¸¸ ºÙÀ½.
-//        RemotePlayer¿£ ºÙÀÌÁö ¸» °Í.
+//  ì£¼ì˜: ë³¸ ì»´í¬ë„ŒíŠ¸ëŠ” ë³¸ì¸ ìºë¦­í„°(LocalPlayer)ì—ë§Œ ë¶™ìŒ.
+//        RemotePlayerì—” ë¶™ì´ì§€ ë§ ê²ƒ.
 // ============================================================================
 [RequireComponent(typeof(Defalult_Input))]
 public class LocalPlayerInputSender : MonoBehaviour
 {
+    public const int PositionSyncPacket=204;
+    readonly Dictionary<long,Vector3> sentPositions=new();
+    readonly Queue<long> sentOrder=new();
+    long lastSentTimestamp;
+    int lastSentFrame=-1;
+    int lastPositionSerial;
+    public void ResetPrediction(){sentPositions.Clear();sentOrder.Clear();}
+    public void SendNow(){
+        if(bootstrap==null||bootstrap.Session==null||!bootstrap.Session.IsConnected||bootstrap.IsAwaitingDebugTeleport)return;
+        if(lastSentFrame==Time.frameCount)return;
+        sendTimer=0;SendInput();
+    }
+    public void ReceivePosition(byte[] bytes){
+        if(bytes==null||bytes.Length!=32||bootstrap==null)return;
+        var state=PacketIO.BytesToStruct<PositionSyncState>(bytes,0);
+        if(state.version!=1||state.serial<=lastPositionSerial||state.teleport<0||state.teleport>1||!float.IsFinite(state.x)||!float.IsFinite(state.y)||!float.IsFinite(state.z))return;
+        lastPositionSerial=state.serial;
+        if(bootstrap.IsAwaitingDebugTeleport&&state.teleport==0)return;
+        var server=new Vector3(state.x,state.y,state.z);
+        Vector3 remaining=Vector3.zero;
+        if(state.teleport==0){
+            if(!sentPositions.TryGetValue(state.inputTimestamp,out var sent))return;
+            remaining=transform.position-sent;
+        }else{
+            ResetPrediction();
+            GetComponent<PlayerDefenseController>()?.CancelDefense();
+            GetComponent<Player_Attack>()?.CancelCurrentAttack();
+            GetComponent<Player_LockOnSystem>()?.ClearLockOn();
+            GetComponent<Player_Movement>()?.ResetVerticalMotion();
+            bootstrap.CompleteAuthoritativeTeleport();
+        }
+        var oldPosition=transform.position;
+        var capsule=GetComponent<CharacterController>();bool enabledBefore=capsule!=null&&capsule.enabled;
+        if(capsule!=null)capsule.enabled=false;
+        transform.position=server;
+        if(capsule!=null)capsule.enabled=enabledBefore;
+        // Replay only displacement produced after the acknowledged input, through local collision.
+        if(enabledBefore&&state.teleport==0)capsule.Move(remaining);
+        else if(state.teleport==0)transform.position+=remaining;
+        var shift=transform.position-oldPosition;
+        var keys=new List<long>(sentPositions.Keys);
+        foreach(long key in keys){if(key<=state.inputTimestamp)sentPositions.Remove(key);else sentPositions[key]+=shift;}
+        Physics.SyncTransforms();
+    }
     private NetworkBootstrap bootstrap;
     private Defalult_Input input;
 
@@ -38,6 +93,8 @@ public class LocalPlayerInputSender : MonoBehaviour
     {
         if (bootstrap == null) return;
         if (bootstrap.Session == null || !bootstrap.Session.IsConnected) return;
+        // Do not send the pre-teleport location back while the server relocates this actor.
+        if (bootstrap.IsAwaitingDebugTeleport) { sendTimer = 0f; return; }
 
         sendTimer += Time.deltaTime;
         if (sendTimer >= SEND_INTERVAL)
@@ -49,6 +106,7 @@ public class LocalPlayerInputSender : MonoBehaviour
 
     private void SendInput()
     {
+        if(input==null)return;
         Vector2 move = input.Move;
         Vector3 pos = transform.position;
         float yaw = transform.eulerAngles.y;
@@ -60,13 +118,15 @@ public class LocalPlayerInputSender : MonoBehaviour
             moveY = move.y,
             jump = input.Jump ? 1 : 0,
             sprint = input.Sprint ? 1 : 0,
-            timestamp = System.DateTime.UtcNow.Ticks,
+            timestamp = System.Math.Max(System.DateTime.UtcNow.Ticks,lastSentTimestamp+1),
             posX = pos.x,
             posY = pos.y,
             posZ = pos.z,
             rotY = yaw,
         };
 
+        lastSentFrame=Time.frameCount;lastSentTimestamp=packet.timestamp;sentPositions[packet.timestamp]=pos;sentOrder.Enqueue(packet.timestamp);
+        while(sentOrder.Count>128)sentPositions.Remove(sentOrder.Dequeue());
         bootstrap.Session.SendPlayerInput(packet);
         SendCount++;
 

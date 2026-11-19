@@ -51,8 +51,7 @@ public class EquipmentSlotUI : MonoBehaviour, IPointerClickHandler
         }
 
         iconImage.enabled = true;
-        iconImage.sprite = item.Icon;
-        iconImage.color = item.Icon != null ? Color.white : item.FallbackIconColor;
+        ItemIconPresentation.Apply(iconImage, item);
 
         GameUIVisualPolish.ApplyToSlot(transform);
     }

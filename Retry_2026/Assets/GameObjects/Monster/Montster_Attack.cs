@@ -1,4 +1,4 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 [DisallowMultipleComponent]
 public class Monster_Attack : MonoBehaviour
@@ -56,21 +56,26 @@ public class Monster_Attack : MonoBehaviour
 
     public bool RequestAttack()
     {
-        if (!CanAttack)
+        if (!CanAttack || attackRequested)
         {
             return false;
         }
 
+        if(GetComponent<KnightHeavyAttack>()?.TryStartOffline()==true)return true;
         attackRequested = true;
         return true;
     }
 
-    // ³×Æ®¿öÅ©: ¼­¹ö °ø°İ Åëº¸ ¡æ Äğ´Ù¿î/Á¶°Ç ¹«½ÃÇÏ°í °ø°İ ¾Ö´Ï¸¸ ¿äÃ».
-    // (³×Æ®¿öÅ© ¸ó½ºÅÍ´Â Update°¡ ²¨Á® Äğ´Ù¿îÀÌ ¾È ÁÙ¾îµé¹Ç·Î RequestAttack ´ë½Å »ç¿ë)
+    // ë„¤íŠ¸ì›Œí¬: ì„œë²„ ê³µê²© í†µë³´ â†’ ì¿¨ë‹¤ìš´/ì¡°ê±´ ë¬´ì‹œí•˜ê³  ê³µê²© ì• ë‹ˆë§Œ ìš”ì²­.
+    // (ë„¤íŠ¸ì›Œí¬ ëª¬ìŠ¤í„°ëŠ” Updateê°€ êº¼ì ¸ ì¿¨ë‹¤ìš´ì´ ì•ˆ ì¤„ì–´ë“¤ë¯€ë¡œ RequestAttack ëŒ€ì‹  ì‚¬ìš©)
     public void NetworkPlayAttack()
     {
         if (monsterState != null && monsterState.IsDead) return;
-        attackRequested = true;
+        if(monsterState!=null)monsterState.ClearNetworkHitForAttack();
+        var animator=GetComponentInChildren<Animator>();
+        if(animator!=null){animator.speed=1;animator.Play(attackAnimationStateName,0,0);}
+        attackRequested = false;
+        NotifyAttackAnimationStarted();
     }
 
     public bool TryConsumeAttackAnimationRequest(out string stateName)

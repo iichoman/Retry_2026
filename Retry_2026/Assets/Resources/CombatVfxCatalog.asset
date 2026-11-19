@@ -1,0 +1,78 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: bc912884d20b3b04fa65e239cc3f63fa, type: 3}
+  m_Name: CombatVfxCatalog
+  m_EditorClassIdentifier: Assembly-CSharp::CombatVfxCatalog
+  BossPrefab: {fileID: 5444102405814813712, guid: 188f57c4dda27a2478ed316df3330dee, type: 3}
+  LootPrefab: {fileID: 6021860582436861706, guid: 708b0bef5a181c64c852c08a2ca50468, type: 3}
+  ProjectilePrefab: {fileID: 1828899918758614448, guid: 02b03239d1826e74f9776bce29fe6b51, type: 3}
+  TelegraphPrefab: {fileID: 8911758458688350471, guid: a881c4160b6c24e46b365d5d75726ea2, type: 3}
+  GroundMaterial: {fileID: 2100000, guid: 92c3f5cd88435194e826b5b4a7fd2e78, type: 2}
+  ParticleMaterial: {fileID: 2100000, guid: 9ddd3dd266058224d89a2bf5129c0e05, type: 2}
+  TrailMaterial: {fileID: 2100000, guid: c773d1eb668df3b49a5085463768d388, type: 2}
+  RingMesh: {fileID: 4300000, guid: 1fbcb2464ed046d4a98a38b220913944, type: 2}
+  LootProfiles:
+  - Label: Common
+    Color: {r: 0.75, g: 0.78, b: 0.8, a: 1}
+    BeamHeight: 0.55
+    ParticleCount: 6
+  - Label: Uncommon
+    Color: {r: 0.22, g: 0.86, b: 0.36, a: 1}
+    BeamHeight: 0.8
+    ParticleCount: 10
+  - Label: Rare
+    Color: {r: 0.15, g: 0.55, b: 1, a: 1}
+    BeamHeight: 1.1
+    ParticleCount: 14
+  - Label: Epic
+    Color: {r: 0.72, g: 0.27, b: 1, a: 1}
+    BeamHeight: 1.4
+    ParticleCount: 20
+  - Label: Boss
+    Color: {r: 1, g: 0.64, b: 0.12, a: 0.88}
+    BeamHeight: 1.9
+    ParticleCount: 28
+  Effects:
+  - Kind: 0
+    Prefab: {fileID: 6347594456444468712, guid: 1da126c5f8ef94a46b425d9491f6403e, type: 3}
+  - Kind: 1
+    Prefab: {fileID: 7094113672602747269, guid: 0ceca377cb665a94b909a21473c6a7dc, type: 3}
+  - Kind: 2
+    Prefab: {fileID: 8355096688028591585, guid: 709b2b078e73a4a41a3a4ba10bdd186c, type: 3}
+  - Kind: 3
+    Prefab: {fileID: 3444886041720579587, guid: 1cc2d3080def5ef4aae5a37d449566df, type: 3}
+  - Kind: 4
+    Prefab: {fileID: 9116596235484089955, guid: 394313005699419498fd558878aa3530, type: 3}
+  - Kind: 5
+    Prefab: {fileID: 3514622625466460027, guid: f303f7f001f9a82479a7e6cd69b8b268, type: 3}
+  - Kind: 6
+    Prefab: {fileID: 270791061356694584, guid: 675d4ccc37ab17146b1996048c1e95fe, type: 3}
+  - Kind: 7
+    Prefab: {fileID: 6867108650932135115, guid: 50c00cf8d3ab37e49902796626333cef, type: 3}
+  - Kind: 8
+    Prefab: {fileID: 7970499205214170800, guid: 950900c5d749247449b45e1a96e8122b, type: 3}
+  - Kind: 9
+    Prefab: {fileID: 636875288997500907, guid: 49dcea0296536024a9477e1b7285dd5b, type: 3}
+  - Kind: 11
+    Prefab: {fileID: 2586221666837484228, guid: 1ff3d411f9e42f64e84ab213bc030177, type: 3}
+  - Kind: 12
+    Prefab: {fileID: 4095457251581601714, guid: 07f4393a083c60a40bcceb89a3ce680d, type: 3}
+  - Kind: 13
+    Prefab: {fileID: 4820028712596437063, guid: 075636b5bc4cca242ae034d5ea22fbb1, type: 3}
+  - Kind: 14
+    Prefab: {fileID: 2778269776715813576, guid: 0275928fb34697e4b993856fa3b91d93, type: 3}
+  - Kind: 15
+    Prefab: {fileID: 5859438516366897985, guid: 66185f4bfad3df140a7a755637368966, type: 3}
+  - Kind: 10
+    Prefab: {fileID: 3114960297993650374, guid: 9dcac778f32cf494ea5f4159c77a8ddf, type: 3}
+  ParticleQuality: 1
+  MaxInstancesPerEffect: 12

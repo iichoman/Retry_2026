@@ -4,7 +4,7 @@ using UnityEngine;
 using UnityEngine.Serialization;
 
 [DisallowMultipleComponent]
-public sealed class RoomObjectPlacer2 : MonoBehaviour
+public sealed partial class RoomObjectPlacer2 : MonoBehaviour
 {
     public event Action<RoomObjectPlacer2> RoomObjectsPlaced;
 
@@ -20,6 +20,13 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
     [SerializeField] private float floorSurfaceHeight = 1f;
     [SerializeField] private bool alignFloorObjectBottomToSurface = true;
     [SerializeField] private float defaultWallSurfaceOffset = 0.12f;
+    [Tooltip("벽 조명의 실제 모델 중심을 바닥과 천장 사이의 비율 높이에 맞춥니다.")]
+    [SerializeField] private bool anchorWallLightingToRoomHeight = true;
+    [SerializeField, Range(0.45f, 0.8f)] private float wallLightingHeightRatio = 0.6f;
+    [Tooltip("불꽃 파티클을 제외한 벽 조명 모델의 실제 높이(m)입니다.")]
+    [SerializeField, Min(0.2f)] private float wallLightingModelHeight = 1.25f;
+    [SerializeField, Min(0f)] private float wallLightingVerticalMargin = 0.25f;
+    [Tooltip("비율 높이 배치를 끈 경우에만 적용되는 기존 슬롯 높이 보정입니다.")]
     [SerializeField] private float wallLightingHeightOffset = 0.3f;
     [SerializeField] private float wallLightingYawOffset = 180f;
     [SerializeField] private float defaultCeilingHangOffset = 0.35f;
@@ -111,32 +118,47 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
 
         var random = new System.Random(dungeonGenerator.seed + placementSeedOffset);
         Transform root = GetOrCreateRoot();
+        ReserveExitPortalFloor();
 
         foreach (Room room in dungeonGenerator.Rooms)
         {
-            RoomTemplate template = PickTemplate(room, random);
+            var roomRandom = UsesRoomComposition ? CreateRoomRandom(room) : random;
+            RoomTemplate template = PickTemplate(room, roomRandom);
             if (template == null)
             {
+                if (UsesRoomComposition) PlaceRoomComposition(room, roomRandom, root);
                 continue;
             }
 
-            PlaceFloorSlots(room, template, random, root);
-            PlaceWallSlots(room, template, random, root);
-            PlaceCeilingSlots(room, template, random, root);
+            PlaceFloorSlots(room, template, roomRandom, root);
+            PlaceWallSlots(room, template, roomRandom, root);
+            PlaceCeilingSlots(room, template, roomRandom, root);
         }
 
         PlaceStartRooms(random, root);
         PlaceCorridorWallSlots(random, root);
+        PlaceExitPortal(root);
         RoomObjectsPlaced?.Invoke(this);
     }
 
     [ContextMenu("Clear Room Objects 2")]
+    private void ClearFromContextMenu()
+    {
+        if (Application.isPlaying && NetworkRuntime.IsOnline)
+        {
+            Debug.LogWarning("온라인 소품은 서버 충돌과 함께 유지됩니다. Play를 종료한 뒤 삭제하세요.", this);
+            return;
+        }
+        ClearPlacedObjects();
+    }
+
     public void ClearPlacedObjects()
     {
         spawnedObjects.Clear();
         occupiedFloorTiles.Clear();
         occupiedWallTiles.Clear();
         occupiedCeilingTiles.Clear();
+        compositionPlacements.Clear();
 
         Transform root = transform.Find(RootName);
         if (root == null)
@@ -146,7 +168,10 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
 
         for (int i = root.childCount - 1; i >= 0; i--)
         {
-            DestroyObject(root.GetChild(i).gameObject);
+            var child = root.GetChild(i).gameObject;
+            // Destroy is deferred in Play: retire colliders/navigation volumes before rebuilding.
+            child.SetActive(false);
+            DestroyObject(child);
         }
     }
 
@@ -847,6 +872,11 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
 
     private void PlaceFloorSlots(Room room, RoomTemplate template, System.Random random, Transform root)
     {
+        if (UsesRoomComposition)
+        {
+            PlaceRoomComposition(room, random, root);
+            return;
+        }
         foreach (FloorSlot slot in template.floorSlots)
         {
             if (!slot.CanPlace(random, propLibrary))
@@ -899,7 +929,9 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
 
             List<WallCandidate> candidates = BuildRoomWallCandidates(room, slot, random);
             int targetCount = ResolveTargetCount(slot.GetCount(random), candidates.Count, wallDecorationDensity);
+            if(room.type==RoomType.Reward)targetCount=Mathf.Max(2,targetCount/2*2);
             int placedCount = 0;
+            GameObject rhythmPrefab = UsesRoomComposition ? slot.PickPrefab(random, propLibrary) : null;
 
             foreach (WallCandidate candidate in candidates)
             {
@@ -913,13 +945,20 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
                     continue;
                 }
 
-                GameObject prefab = slot.PickPrefab(random, propLibrary);
+                GameObject prefab = UsesRoomComposition ? rhythmPrefab : slot.PickPrefab(random, propLibrary);
                 if (prefab == null)
                 {
                     break;
                 }
 
-                Spawn(prefab, GetWallPosition(candidate, slot), GetWallRotation(candidate, slot), root);
+                if(room.type==RoomType.Reward){
+                    var facing=candidate.roomFacingDirection;
+                    if(RoomBlueprint.Entrance(room).z!=0)facing.x=-facing.x;else facing.z=-facing.z;
+                    var mirror=new WallCandidate(DungeonSetDressing.MirrorWall(room,candidate.floorTile),DungeonSetDressing.MirrorWall(room,candidate.wallTile),facing);
+                    if(mirror.floorTile==candidate.floorTile||!IsValidWallCandidate(room,mirror,slot))continue;
+                    SpawnWallObject(prefab,mirror,slot,root);OccupyWallArea(mirror.wallTile,slot.wallOccupyRadius);placedCount++;
+                }
+                SpawnWallObject(prefab, candidate, slot, root);
                 OccupyWallArea(candidate.wallTile, slot.wallOccupyRadius);
                 placedCount++;
             }
@@ -959,7 +998,7 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
 
                 Vector3 position = GetCeilingPosition(candidate.tile, slot);
                 Quaternion rotation = slot.randomYaw
-                    ? Quaternion.Euler(0f, (float)(random.NextDouble() * 360f), 0f) * Quaternion.Euler(slot.rotationOffset)
+                    ? Quaternion.Euler(0f, UsesRoomComposition ? random.Next(0, 4) * 90f : (float)(random.NextDouble() * 360f), 0f) * Quaternion.Euler(slot.rotationOffset)
                     : Quaternion.Euler(slot.rotationOffset);
 
                 Spawn(prefab, position, rotation, root);
@@ -980,15 +1019,17 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
         foreach (StartRoom startRoom in startRooms)
         {
             Room room = CreateStartRoomContext(startRoom);
-            RoomTemplate template = PickTemplate(room, random);
+            var roomRandom = UsesRoomComposition ? CreateRoomRandom(room) : random;
+            RoomTemplate template = PickTemplate(room, roomRandom);
             if (template == null)
             {
+                if (UsesRoomComposition) PlaceRoomComposition(room, roomRandom, root);
                 continue;
             }
 
-            PlaceFloorSlots(room, template, random, root);
-            PlaceWallSlots(room, template, random, root);
-            PlaceCeilingSlots(room, template, random, root);
+            PlaceFloorSlots(room, template, roomRandom, root);
+            PlaceWallSlots(room, template, roomRandom, root);
+            PlaceCeilingSlots(room, template, roomRandom, root);
         }
     }
 
@@ -1023,7 +1064,7 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
                     break;
                 }
 
-                Spawn(prefab, GetWallPosition(candidate, slot), GetWallRotation(candidate, slot), root);
+                SpawnWallObject(prefab, candidate, slot, root);
                 OccupyWallArea(candidate.wallTile, slot.wallOccupyRadius);
                 placedCount++;
             }
@@ -1802,6 +1843,50 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
                slot.positionOffset;
     }
 
+    private GameObject SpawnWallObject(GameObject prefab, WallCandidate candidate, WallSlot slot, Transform root)
+    {
+        GameObject instance = Spawn(prefab, GetWallPosition(candidate, slot), GetWallRotation(candidate, slot), root);
+        if (!anchorWallLightingToRoomHeight || !slot.UsesCategory(PropCategory.벽조명) ||
+            !TryGetPlacementBounds(instance, out Bounds bounds))
+        {
+            return instance;
+        }
+
+        // Dungeon wall blocks span floorSurfaceHeight..mapHeight. Use visible mesh bounds,
+        // not the imported pivot or changing flame/smoke bounds, for stable wall mounting.
+        Vector3 floorCenter = dungeonGenerator.TileToWorldCenter(new Vector3Int(candidate.floorTile.x, 0, candidate.floorTile.z));
+        float floorY = floorCenter.y + floorSurfaceHeight;
+        float ceilingY = floorCenter.y + Mathf.Max(1, dungeonGenerator.mapHeight);
+        float availableHeight = ceilingY - floorY;
+        if (availableHeight < 0.25f)
+        {
+            return instance;
+        }
+        float margin = Mathf.Min(Mathf.Max(0f, wallLightingVerticalMargin), availableHeight * 0.2f);
+        float targetModelHeight = Mathf.Min(Mathf.Max(0.2f, wallLightingModelHeight), availableHeight - margin * 2f);
+        if (bounds.size.y > 0.001f)
+        {
+            instance.transform.localScale *= targetModelHeight / bounds.size.y;
+            TryGetPlacementBounds(instance, out bounds);
+        }
+
+        float targetCenterY = Mathf.Lerp(floorY, ceilingY, Mathf.Clamp01(wallLightingHeightRatio)) + slot.positionOffset.y;
+        targetCenterY = Mathf.Clamp(targetCenterY, floorY + margin + bounds.extents.y,
+            ceilingY - margin - bounds.extents.y);
+
+        // Cardinal wall normals let the world AABB represent the actual wall-facing extent.
+        // The mesh's back is placed just in front of the wall; its pivot can be anywhere.
+        Vector3 inward = candidate.roomFacingDirection.normalized;
+        Vector3 wallFace = dungeonGenerator.TileToWorldCenter(candidate.wallTile) + inward * 0.5f;
+        float extentAlongNormal = Mathf.Abs(inward.x) * bounds.extents.x + Mathf.Abs(inward.z) * bounds.extents.z;
+        float backAlongNormal = Vector3.Dot(bounds.center - wallFace, inward) - extentAlongNormal;
+        float surfaceOffset = slot.wallSurfaceOffset >= 0f ? slot.wallSurfaceOffset : defaultWallSurfaceOffset;
+        Vector3 correction = inward * (Mathf.Max(0.02f, surfaceOffset) - backAlongNormal);
+        correction.y = targetCenterY - bounds.center.y;
+        instance.transform.position += correction;
+        return instance;
+    }
+
     private Vector3 GetCeilingPosition(Vector3Int tile, CeilingSlot slot)
     {
         float hangOffset = slot.hangOffset >= 0f ? slot.hangOffset : defaultCeilingHangOffset;
@@ -2242,7 +2327,7 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
         {
             foreach (GameObject prefab in prefabs)
             {
-                if (prefab != null)
+                if (IsDecorationPrefab(prefab))
                 {
                     return true;
                 }
@@ -2257,7 +2342,7 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
             {
                 foreach (GameObject prefab in library.GetPrefabs(category))
                 {
-                    if (prefab != null)
+                    if (IsDecorationPrefab(prefab))
                     {
                         return true;
                     }
@@ -2273,7 +2358,7 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
 
             foreach (GameObject prefab in prefabs)
             {
-                if (prefab != null)
+                if (IsDecorationPrefab(prefab))
                 {
                     pool.Add(prefab);
                 }
@@ -2288,7 +2373,7 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
             {
                 foreach (GameObject prefab in library.GetPrefabs(category))
                 {
-                    if (prefab != null)
+                    if (IsDecorationPrefab(prefab))
                     {
                         pool.Add(prefab);
                     }
@@ -2297,6 +2382,10 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
 
             return pool;
         }
+
+        // Gameplay portals have one dedicated placement; decoration slots must never clone them.
+        private static bool IsDecorationPrefab(GameObject prefab) =>
+            prefab != null && !DungeonSetDressing.IsBanner(prefab.name) && prefab.GetComponentInChildren<ExitPortal>(true) == null;
     }
 
     [Serializable]
@@ -2447,4 +2536,3 @@ public sealed class RoomObjectPlacer2 : MonoBehaviour
         All = North | South | East | West
     }
 }
-

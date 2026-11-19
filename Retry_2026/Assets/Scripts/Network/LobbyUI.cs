@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using UnityEngine.EventSystems;
@@ -46,6 +47,19 @@ public class LobbyUI : MonoBehaviour
     static readonly Color ColBtn = new Color32(0x2B, 0x30, 0x2A, 0xFF);
     static readonly Color ColBtnTan = new Color32(0x46, 0x3C, 0x24, 0xFF);
     static readonly Color ColBtnDanger = new Color32(0x4E, 0x2C, 0x28, 0xFF);
+    // 어두운 갈색 버튼은 배경과 붙어 검게 보였다. 주요 액션은 밝은 색으로 분리한다.
+    static readonly Color ColBtnStart = new Color32(0xD8, 0xA2, 0x3C, 0xFF);   // 파티 시작(금색)
+    static readonly Color ColBtnWait = new Color32(0x3E, 0x82, 0xD0, 0xFF);   // 준비(파란색)
+    static readonly Color ColBtnDone = new Color32(0x4F, 0xB8, 0x63, 0xFF);   // 준비 완료(초록)
+    static readonly Color ColOnBright = new Color32(0x14, 0x14, 0x10, 0xFF);   // 밝은 버튼 위 글자
+    static readonly Color ColError = new Color32(0xFF, 0x5B, 0x50, 0xFF);   // 입력 오류 문구
+    // 입력칸 배경. 타이틀에 뒤판이 없어 디오라마 위에 바로 올라가므로
+    // 살짝 더 진하게 해서 글자가 배경에 묻히지 않게 한다.
+    static readonly Color ColInput = new Color32(0x16, 0x1A, 0x1E, 0xF2);
+
+    // 타이틀 화면 가로 분할. 왼쪽 UI 3 : 오른쪽 캐릭터 7.
+    // LobbyRoom.titleScreenX(기본 0.66)와 짝을 이룬다. 한쪽만 바꾸면 어긋난다.
+    private const float UiSplit = 0.30f;
 
     private Font font;
     private Canvas canvas;
@@ -53,10 +67,48 @@ public class LobbyUI : MonoBehaviour
 
     private GameObject connectingPanel, mainPanel, createPanel, findPanel, waitingPanel, guidePanel, titlePanel;
     private InputField titleNicknameInput;
+    private InputField titlePasswordInput;
+    private Text  nickError, pwError;
+    private string pendingPassword = "";          // 세션 복귀 시 자동 재로그인용
+    /// <summary>씬을 새로고침해도 다시 로그인할 수 있도록 마지막 비밀번호를 들고 있는다.</summary>
+    public static string LastPassword = "";
+
+    // 회원가입 / 비밀번호 찾기 모달
+    private GameObject accountModal;
+    private Text       accountTitle;
+    private InputField acNick, acPw1, acPw2;
+    private Text       acNickError, acPwError, acShowPwLabel, acSubmitLabel;
+    private Button     acShowPwBtn, acSubmitBtn;
+    private bool       accountRegisterMode = true;
+    private bool       showPassword;
+    private string     lastValidModalNick = "";
+
+    // 플레이 전적
+    private GameObject statsPanel;
+    private Text       statsBody;
+
+    // 빨간 안내 문구의 자동 삭제 시각
+    private readonly Dictionary<Text, float> errorClearAt = new Dictionary<Text, float>();
+    private Text  nickLabel;
+    private float nickWarnUntil;
+    private string lastValidNick = "";
+
+    private const string NickLabelNormal = "닉네임";
+    private const string NickLabelWarn   = "한글 6글자, 영어 12글자 제한입니다.";
+    // 표시 폭 한도. 한글 1자를 2폭으로 센다 → 한글 6자 = 영문 12자.
+    private const int NickWidthLimit = 12;
     private GameObject listContent, gridContainer;
     private Text statusText, statusBarText, nameLabel;
     private Text waitTitle, profileLabel;
-    private Button startBtn;
+    // 팀 슬롯/준비 표시 색
+    private static readonly Color ColSlotEmpty  = new Color(1f, 1f, 1f, 0.05f);
+    private static readonly Color ColSlotFilled = new Color(1f, 1f, 1f, 0.12f);
+    private static readonly Color ColSlotMine   = new Color(0.85f, 0.70f, 0.35f, 0.22f);
+    private static readonly Color ColReady      = new Color(0.55f, 1.00f, 0.60f);
+
+    private Button startBtn;      // 방장: 파티 시작 / 파티원: 준비
+    private Text   startBtnLabel;
+    private Button leaveBtn;
     private InputField partyNameInput;
     private float statusUntil, nextPollTime;
 
@@ -99,7 +151,14 @@ public class LobbyUI : MonoBehaviour
         PlayerPrefs.Save();
 
         string nick = auto ? PlayerPrefs.GetString("retry_autologin_nick", "") : "";
-        if (auto && !string.IsNullOrWhiteSpace(nick) && bootstrap != null && bootstrap.BeginLogin(nick))
+        // 인게임에서 돌아온 경우 예전 clientId를 같이 보낸다. 서버가 잠가 둔
+        // 내 닉네임을 이걸로 풀어준다. (없으면 0 = 새 로그인)
+        int reconnectCid = auto ? PlayerPrefs.GetInt(PauseMenu.PrefAutoCid, 0) : 0;
+        PlayerPrefs.SetInt(PauseMenu.PrefAutoCid, 0);   // 1회성
+
+        string pw = auto ? PlayerPrefs.GetString(PauseMenu.PrefAutoPw, "") : "";
+        if (auto && !string.IsNullOrWhiteSpace(nick) && bootstrap != null
+            && bootstrap.BeginLogin(nick, pw, reconnectCid))
         {
             if (titleNicknameInput != null) titleNicknameInput.text = nick;
             GoTo(Screen.Connecting);   // IsAuthenticated 되면 Update에서 Main으로
@@ -126,11 +185,15 @@ public class LobbyUI : MonoBehaviour
     {
         if (bootstrap == null) { bootstrap = FindFirstObjectByType<NetworkBootstrap>(); return; }
         TrySubscribe();
+        UpdateNickWarning();
+        UpdateErrors();
 
         var id = bootstrap.Identity;
         if (id != null && id.IsConnectedToSession)
         {
             if (canvas != null && canvas.gameObject.activeSelf) canvas.gameObject.SetActive(false);
+            // 오버레이는 서버의 SESSION_START_GAME(전원 입장)까지 유지한다.
+            // NetworkBootstrap이 그 신호를 받아 Hide()를 호출한다.
             return;
         }
 
@@ -175,7 +238,10 @@ public class LobbyUI : MonoBehaviour
                     if (r.success == 0)
                     {
                         GoTo(Screen.Title);
-                        Toast("이미 사용 중인 닉네임입니다");
+                        string why = NameCodec.Decode(r.failReason);
+                        if (string.IsNullOrEmpty(why)) why = "로그인에 실패했습니다";
+                        // 비밀번호 문제면 비밀번호 칸 옆에, 그 외엔 닉네임 칸 옆에.
+                        ShowError(why.Contains("비밀번호") ? pwError : nickError, why);
                     }
                     break;
                 }
@@ -187,7 +253,7 @@ public class LobbyUI : MonoBehaviour
                     {
                         myRoomId = r.roomId; amHost = true;
                         GoTo(Screen.Waiting);
-                        Toast($"파티 생성됨 (코드 {r.roomId})");
+                        Toast("파티가 생성되었습니다");
                     }
                     else Toast("파티 생성 실패");
                     break;
@@ -201,7 +267,7 @@ public class LobbyUI : MonoBehaviour
                         amHost = (r.hostClientId == bootstrap.Identity.LocalClientId);
                         memberMax = r.maxPlayers > 0 ? r.maxPlayers : LobbyConst.MAX_SESSION_PLAYERS;
                         GoTo(Screen.Waiting);
-                        Toast($"파티 참가 (코드 {r.roomId})");
+                        Toast("파티에 참가했습니다");
                     }
                     else Toast($"참가 실패: {Clean(r.failReason)}");
                     break;
@@ -229,8 +295,47 @@ public class LobbyUI : MonoBehaviour
                     if (screen == Screen.Waiting) GoTo(Screen.Main);
                     break;
                 }
+            case (int)PacketType.REGISTER_RESULT:
+            case (int)PacketType.RESET_PW_RESULT:
+                {
+                    var a = PacketIO.BytesToStruct<AccountResult>(body, 0);
+                    bool isRegister = (t == (int)PacketType.REGISTER_RESULT);
+                    if (a.success != 0)
+                    {
+                        // 성공하면 모달을 닫고 방금 만든 닉네임을 시작 화면에 채워 준다.
+                        string nick = acNick != null ? acNick.text : "";
+                        string pw = acPw1 != null ? acPw1.text : "";
+                        HideAccountModal();
+                        if (titleNicknameInput != null) titleNicknameInput.text = nick;
+                        if (titlePasswordInput != null) titlePasswordInput.text = pw;
+                        Toast(isRegister ? "회원 가입이 완료되었습니다" : "비밀번호가 변경되었습니다");
+                    }
+                    else
+                    {
+                        string why = NameCodec.Decode(a.failReason);
+                        if (string.IsNullOrEmpty(why)) why = "처리에 실패했습니다";
+                        ShowError(why.Contains("비밀번호") ? acPwError : acNickError, why);
+                    }
+                    break;
+                }
+
+            case (int)PacketType.PLAYER_STATS_RESULT:
+                {
+                    var s = PacketIO.BytesToStruct<PlayerStatsResult>(body, 0);
+                    ShowStats(s);
+                    break;
+                }
+
+            case (int)PacketType.GAME_START_NOTICE:
+                {
+                    // 방장이 시작을 눌러 서버가 던전 생성을 시작했다. 파티원 전원에게 표시.
+                    if (myRoomId != 0) LoadingOverlay.Show("던전 생성 중..");
+                    break;
+                }
             case (int)PacketType.SESSION_ASSIGN:
                 {
+                    // 공지를 놓쳤어도 여기서 확실히 띄운다. (클라 던전 생성이 제일 오래 걸림)
+                    LoadingOverlay.Show("던전 생성 중..");
                     if (canvas != null) canvas.gameObject.SetActive(false);
                     break;
                 }
@@ -243,6 +348,7 @@ public class LobbyUI : MonoBehaviour
     private void GoTo(Screen s)
     {
         screen = s;
+        ClearErrors();   // 화면이 바뀌면 빨간 안내 문구도 지운다
         if (guidePanel != null) guidePanel.SetActive(false);   // 화면 전환 시 가이드 닫기
         titlePanel.SetActive(s == Screen.Title);
         connectingPanel.SetActive(s == Screen.Connecting);
@@ -250,6 +356,9 @@ public class LobbyUI : MonoBehaviour
         createPanel.SetActive(s == Screen.Create);
         findPanel.SetActive(s == Screen.Find);
         waitingPanel.SetActive(s == Screen.Waiting);
+
+        // 타이틀이면 카메라를 왼쪽으로(캐릭터 오른쪽), 벗어나면 중앙으로 천천히 이동
+        LobbyRoom.SetTitleView(s == Screen.Title);
 
         if (s == Screen.Find)
         {
@@ -260,6 +369,58 @@ public class LobbyUI : MonoBehaviour
         {
             RefreshWaiting();
         }
+    }
+
+    // ── 닉네임 길이 검사 ────────────────────────────────────────
+    //  한글은 팀 슬롯에서 영문의 두 배 폭을 차지한다. 그래서 글자 수가 아니라
+    //  '표시 폭'으로 제한한다. 한도를 넘으면 입력을 되돌리고 라벨로 알려준다.
+    private static int DisplayWidth(string s)
+    {
+        int w = 0;
+        for (int i = 0; i < s.Length; i++) w += IsWide(s[i]) ? 2 : 1;
+        return w;
+    }
+
+    private static bool IsWide(char c)
+    {
+        // 한글(음절/자모) + CJK + 전각 구간
+        return (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x1100 && c <= 0x11FF)
+            || (c >= 0x3130 && c <= 0x318F) || (c >= 0x4E00 && c <= 0x9FFF)
+            || (c >= 0x3000 && c <= 0x303F) || (c >= 0xFF00 && c <= 0xFF60);
+    }
+
+    private void OnNicknameChanged(string value)
+    {
+        if (DisplayWidth(value) <= NickWidthLimit)
+        {
+            lastValidNick = value;
+            return;
+        }
+
+        // 한도 초과: 마지막 유효값으로 되돌리고 라벨을 빨갛게 잠깐 바꾼다.
+        titleNicknameInput.text = lastValidNick;
+        titleNicknameInput.caretPosition = lastValidNick.Length;
+        ShowNickWarning();
+    }
+
+    private void ShowNickWarning()
+    {
+        if (nickLabel == null) return;
+        nickLabel.text = NickLabelWarn;
+        nickLabel.color = ColBtnDanger;
+        nickLabel.fontSize = 14;
+        nickWarnUntil = Time.unscaledTime + 1.8f;
+    }
+
+    private void UpdateNickWarning()
+    {
+        if (nickLabel == null || nickWarnUntil <= 0f) return;
+        if (Time.unscaledTime < nickWarnUntil) return;
+
+        nickWarnUntil = 0f;
+        nickLabel.text = NickLabelNormal;
+        nickLabel.color = ColTextDim;
+        nickLabel.fontSize = 16;
     }
 
     // ── 버튼 동작 ──
@@ -279,7 +440,32 @@ public class LobbyUI : MonoBehaviour
     }
     private void OnClickJoin(int roomId) { bootstrap.Lobby?.SendRoomJoin(roomId); }
     private void OnClickSelectTeam(int team) { bootstrap.Lobby?.SendSelectTeam(team); }
-    private void OnClickStartRaid() { bootstrap.Lobby?.SendGameStart(); Toast("파티 시작 요청..."); }
+    // 방장이면 시작 요청, 파티원이면 준비 토글.
+    // 준비가 덜 됐을 때의 [시스템] 안내는 서버가 방장에게 직접 보낸다.
+    private void OnClickStartOrReady()
+    {
+        if (amHost)
+        {
+            bootstrap.Lobby?.SendGameStart();
+            // 전원 준비된 경우에만 로딩 화면을 띄운다.
+            // (미준비 시엔 서버가 [시스템] 거절 메시지만 보내므로 오버레이가 남으면 안 된다)
+            if (AllMembersReadyLocal()) LoadingOverlay.Show("던전 생성 중..");
+        }
+        else { bootstrap.Lobby?.SendReadyToggle(); }
+    }
+
+    // 방장을 제외한 전원이 준비됐는지. 서버 판정과 같은 규칙.
+    private bool AllMembersReadyLocal()
+    {
+        int host = -1;
+        for (int i = 0; i < rosterCount; i++) if (roster[i].isHost != 0) { host = roster[i].clientId; break; }
+        for (int i = 0; i < rosterCount; i++)
+        {
+            if (roster[i].clientId == host) continue;
+            if (roster[i].isReady == 0) return false;
+        }
+        return true;
+    }
     private void OnClickLeave()
     {
         bootstrap.Lobby?.SendRoomLeave();
@@ -349,18 +535,38 @@ public class LobbyUI : MonoBehaviour
         return LobbyConst.TEAM_UNASSIGNED;
     }
 
+    // 내 준비 상태. 방장은 항상 준비된 것으로 본다.
+    private bool AmIReady()
+    {
+        if (amHost) return true;
+        int me = bootstrap.Identity.LocalClientId;
+        for (int i = 0; i < rosterCount; i++)
+            if (roster[i].clientId == me) return roster[i].isReady != 0;
+        return false;
+    }
+
     private void RefreshWaiting()
     {
         if (waitTitle == null) return;
 
         waitTitle.text = string.IsNullOrEmpty(myRoomName)
-            ? $"파티 대기실 — 코드 {myRoomId}"
-            : $"{myRoomName} — 코드 {myRoomId}";
+            ? "파티 대기실"
+            : myRoomName;
 
         myTeam = GetMyTeam();
         string teamStr = (myTeam < 0) ? "팀 미선택" : $"팀 {myTeam + 1}";
         profileLabel.text = $"{bootstrap.Identity.PlayerName} (나)    ·    {teamStr}    ·    파티 {rosterCount}/{memberMax}명";
-        startBtn.gameObject.SetActive(amHost);
+        // 버튼은 항상 두 개 보이고, 오른쪽 라벨만 역할에 따라 바뀐다.
+        bool iAmReady = AmIReady();
+        if (startBtnLabel != null)
+        {
+            startBtnLabel.text = amHost ? "파티 시작" : (iAmReady ? "준비 완료" : "준비");
+        }
+        // Button은 ColorBlock.normalColor를 매 프레임 targetGraphic에 덮어쓴다.
+        // 그래서 Image.color만 바꾸면 색이 안 변한다. ColorBlock을 직접 갱신해야 한다.
+        Color startCol = amHost ? ColBtnStart : (iAmReady ? ColBtnDone : ColBtnWait);
+        SetButtonColor(startBtn, startCol);
+        if (startBtnLabel != null) startBtnLabel.color = ColOnBright;
 
         if (gridContainer == null) return;
         var grid = gridContainer.GetComponent<GridLayoutGroup>();
@@ -393,34 +599,63 @@ public class LobbyUI : MonoBehaviour
         AddText(hd, $"팀 {teamId + 1}   {cnt}/{LobbyConst.TEAM_CAPACITY}", 15,
                 mine ? ColTan : ColText, TextAnchor.MiddleCenter).fontStyle = FontStyle.Bold;
 
-        // 멤버 이름 (최대 3)
+        // 닉네임이 들어갈 직사각형 슬롯 3개. 비어 있어도 칸은 그대로 그린다.
         int shown = 0;
-        for (int i = 0; i < rosterCount && shown < LobbyConst.TEAM_CAPACITY; i++)
+        for (int s = 0; s < LobbyConst.TEAM_CAPACITY; s++)
         {
-            if (roster[i].teamId != teamId) continue;
-            var row = New($"M{shown}", cell.transform);
-            float yTop = 0.78f - shown * 0.165f;
-            Frac(row, 0.06f, yTop - 0.15f, 0.94f, yTop);
-            bool me = roster[i].clientId == bootstrap.Identity.LocalClientId;
-            string nm = NameCodec.Decode(roster[i].playerName);
-            if (string.IsNullOrEmpty(nm)) nm = $"#{roster[i].clientId}";
-            if (roster[i].isHost != 0) nm = "★ " + nm;
+            float yTop = 0.80f - s * 0.175f;
+            var slot = New($"Slot{s}", cell.transform);
+            Frac(slot, 0.06f, yTop - 0.155f, 0.94f, yTop);
+
+            // 이 슬롯에 들어갈 멤버 찾기
+            int found = -1;
+            int seen = 0;
+            for (int i = 0; i < rosterCount; i++)
+            {
+                if (roster[i].teamId != teamId) continue;
+                if (seen == s) { found = i; break; }
+                seen++;
+            }
+
+            if (found < 0)
+            {
+                AddImage(slot, ColSlotEmpty);
+                var et = New("T", slot.transform);
+                Frac(et, 0f, 0f, 1f, 1f);
+                AddText(et, "비어 있음", 12, ColTextDim, TextAnchor.MiddleCenter);
+                continue;
+            }
+
+            bool me = roster[found].clientId == bootstrap.Identity.LocalClientId;
+            bool host = roster[found].isHost != 0;
+            bool ready = roster[found].isReady != 0;
+
+            AddImage(slot, me ? ColSlotMine : ColSlotFilled);
+
+            string nm = NameCodec.Decode(roster[found].playerName);
+            if (string.IsNullOrEmpty(nm)) nm = $"#{roster[found].clientId}";
+            if (host) nm = "★ " + nm;
             if (me) nm += " (나)";
-            AddText(row, nm, 13, me ? ColTan : ColText, TextAnchor.MiddleCenter);
+
+            var nameGo = New("T", slot.transform);
+            Frac(nameGo, 0.05f, 0f, 0.80f, 1f);
+            var nameTxt = AddText(nameGo, nm, 12, me ? ColTan : ColText, TextAnchor.MiddleLeft);
+            // 한글 6자(=전각 6자)는 Wrap이면 두 줄로 접힌다. 폭이 좁아도 한 줄 유지.
+            nameTxt.horizontalOverflow = HorizontalWrapMode.Overflow;
+            nameTxt.verticalOverflow = VerticalWrapMode.Truncate;
+
+            // 준비 표시. 방장은 준비 개념이 없어 표시하지 않는다.
+            var markGo = New("R", slot.transform);
+            Frac(markGo, 0.80f, 0f, 0.97f, 1f);
+            AddText(markGo, host ? "" : (ready ? "●" : "○"), 13,
+                    ready ? ColReady : ColTextDim, TextAnchor.MiddleCenter);
             shown++;
-        }
-        for (int s = shown; s < LobbyConst.TEAM_CAPACITY; s++)
-        {
-            var row = New($"E{s}", cell.transform);
-            float yTop = 0.78f - s * 0.165f;
-            Frac(row, 0.06f, yTop - 0.15f, 0.94f, yTop);
-            AddText(row, "—", 13, ColTextDim, TextAnchor.MiddleCenter);
         }
 
         // 선택 버튼
         string label = mine ? "현재 팀" : (full ? "가득참" : "선택");
         var btn = MakeButton(cell.transform, label,
-            new Vector2(0.1f, 0.05f), new Vector2(0.9f, 0.26f), Vector2.zero, Vector2.zero,
+            new Vector2(0.06f, 0.05f), new Vector2(0.94f, 0.26f), Vector2.zero, Vector2.zero,
             mine ? ColBtn : ColBtnTan, 14, () => OnClickSelectTeam(teamId));
         btn.interactable = !mine && !full;
     }
@@ -454,46 +689,295 @@ public class LobbyUI : MonoBehaviour
         BuildGuide();
     }
 
+    // ========================================================================
+    //  타이틀 화면  —  로고 + 로그인 + 회원가입/비밀번호 찾기
+    // ========================================================================
     private void BuildTitle()
     {
         titlePanel = New("TitlePanel", canvas.transform);
         StretchFull(titlePanel);
+        MakeButton(titlePanel.transform,"설정",new Vector2(1,0),new Vector2(1,0),new Vector2(-190,32),new Vector2(-32,86),ColBtnTan,20,GameOptions.Open);
 
-        var dim = New("Dim", titlePanel.transform);
-        StretchFull(dim);
-        dim.AddComponent<Image>().color = new Color(0, 0, 0, 0.7f);
+        // 왼쪽 3 : 오른쪽 7. 오른쪽은 아무것도 덮지 않는다.
+        // 덮으면 LobbyRoom 캐릭터가 안 보이고 드래그 회전도 UI에 막힌다.
+        var col = New("SideColumn", titlePanel.transform);
+        Frac(col, 0f, 0f, UiSplit, 1f);
+        AddImage(col, new Color(0.02f, 0.03f, 0.04f, 0.94f));    // 여긴 클릭 차단(의도적)
 
-        // 큰 RETRY 로고
+        // 경계가 칼로 자른 듯 보이지 않게 오른쪽으로 갈수록 옅어지는 띠. 클릭은 통과.
+        float[] fade = { 0.70f, 0.44f, 0.24f, 0.10f };
+        for (int i = 0; i < fade.Length; i++)
+        {
+            var f = New("Fade" + i, titlePanel.transform);
+            Frac(f, UiSplit + 0.032f * i, 0f, UiSplit + 0.032f * (i + 1), 1f);
+            AddImage(f, new Color(0.02f, 0.03f, 0.04f, fade[i])).raycastTarget = false;
+        }
+
+        // 왼쪽 열의 가로 한가운데를 기준점으로 잡는다. 비율 앵커라 해상도가
+        // 바뀌어도 3:7이 유지된다. 아래 숫자들은 전부 이 점에서의 거리다.
+        var uiA = new Vector2(UiSplit * 0.5f, 0.5f);
+
+        // ── 로고 (Retry.png) ─────────────────────────────────
+        // AspectRatioFitter(FitInParent)는 앵커를 부모 전체로 덮어써서 좌표를
+        // 무시한다. 쓰지 않고 텍스처 비율로 폭을 직접 계산한다.
+        const float LogoH = 400f;          // 로고 높이. 이 값만 바꾸면 크기 조절
+        const float LogoBottom = -60f;     // 세로 중앙에서 로고 아래변까지
         var logo = New("Logo", titlePanel.transform);
-        SetRect(logo, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-420, 90), new Vector2(420, 230));
-        AddText(logo, "R E T R Y", 86, ColTan, TextAnchor.MiddleCenter).fontStyle = FontStyle.Bold;
-        var sub = New("Sub", titlePanel.transform);
-        SetRect(sub, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-420, 56), new Vector2(420, 92));
-        AddText(sub, "EXTRACTION  ·  PvPvE", 18, ColTextDim, TextAnchor.MiddleCenter);
+        var raw = logo.AddComponent<RawImage>();
+        raw.raycastTarget = false;
+        var tex = Resources.Load<Texture2D>("Retry");
+        float logoW = LogoH;
+        if (tex != null)
+        {
+            raw.texture = tex;
+            if (tex.height > 0) logoW = LogoH * tex.width / tex.height;
+        }
+        else raw.color = new Color(1, 1, 1, 0);
+        SetRect(logo, uiA, uiA,
+                new Vector2(-logoW * 0.5f, LogoBottom),
+                new Vector2(logoW * 0.5f, LogoBottom + LogoH));
 
-        // 닉네임 라벨 + 입력칸
-        var lbl = New("Lbl", titlePanel.transform);
-        SetRect(lbl, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200, 4), new Vector2(200, 34));
-        AddText(lbl, "닉네임", 16, ColTextDim, TextAnchor.MiddleCenter);
+        // ── 닉네임 ───────────────────────────────────────────
+        titleNicknameInput = MakeInputField(titlePanel.transform, uiA, uiA,
+            new Vector2(-210, -130), new Vector2(210, -80),
+            "닉네임", "", 20);
+        titleNicknameInput.characterLimit = 0;                 // 폭 기준으로 직접 검사
+        titleNicknameInput.onValueChanged.AddListener(OnNicknameChanged);
+        nickError = MakeInlineError(titleNicknameInput);
 
-        titleNicknameInput = MakeInputField(titlePanel.transform,
-            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200, -48), new Vector2(200, -4),
-            "닉네임 입력", "", 22);
-        titleNicknameInput.characterLimit = 12;
+        // ── 비밀번호 ─────────────────────────────────────────
+        titlePasswordInput = MakeInputField(titlePanel.transform, uiA, uiA,
+            new Vector2(-210, -192), new Vector2(210, -142),
+            "비밀번호", "", 20);
+        titlePasswordInput.contentType = InputField.ContentType.Password;
+        titlePasswordInput.characterLimit = 32;
+        pwError = MakeInlineError(titlePasswordInput);
 
-        MakeButton(titlePanel.transform, "시작",
-            new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200, -112), new Vector2(200, -60),
-            ColBtnTan, 24, OnClickStartGame);
+        // ── 시작 ─────────────────────────────────────────────
+        MakeButton(titlePanel.transform, "게임 시작", uiA, uiA,
+            new Vector2(-210, -274), new Vector2(210, -212),
+            ColBtnStart, 24, OnClickStartGame).GetComponentInChildren<Text>().color = ColOnBright;
+
+        // ── 회원가입 / 비밀번호 찾기 (입력칸 폭의 절반씩) ────
+        MakeButton(titlePanel.transform, "회원 가입", uiA, uiA,
+            new Vector2(-210, -336), new Vector2(-6, -288),
+            ColBtnTan, 17, () => ShowAccountModal(true));
+
+        MakeButton(titlePanel.transform, "비밀번호 찾기", uiA, uiA,
+            new Vector2(6, -336), new Vector2(210, -288),
+            ColBtnTan, 17, () => ShowAccountModal(false));
+
+        // 엔터로 다음 칸 / 로그인
+        titleNicknameInput.onEndEdit.AddListener(_ =>
+        {
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                titlePasswordInput?.ActivateInputField();
+        });
+        titlePasswordInput.onEndEdit.AddListener(_ =>
+        {
+            if (Input.GetKeyDown(KeyCode.Return) || Input.GetKeyDown(KeyCode.KeypadEnter))
+                OnClickStartGame();
+        });
+
+        BuildAccountModal();
+    }
+
+    // 입력칸 "안쪽" 오른쪽에 뜨는 빨간 안내 문구. 평소엔 빈 문자열이라
+    // 자리를 차지하지 않고, 화면 밖으로 삐져나오지도 않는다.
+    private Text MakeInlineError(InputField field)
+    {
+        var go = New("Err", field.transform);
+        SetRect(go, Vector2.zero, Vector2.one, new Vector2(120, 0), new Vector2(-12, 0));
+        var t = AddText(go, "", 14, ColError, TextAnchor.MiddleRight);
+        t.horizontalOverflow = HorizontalWrapMode.Overflow;
+        t.raycastTarget = false;          // 클릭이 입력칸으로 그대로 통과하게
+        return t;
+    }
+
+    // 잠깐 보였다가 사라지는 빨간 문구.
+    private void ShowError(Text label, string msg)
+    {
+        if (label == null) return;
+        label.text = msg;
+        label.color = ColError;
+        errorClearAt[label] = Time.unscaledTime + 3.0f;
+    }
+
+    private void ClearErrors()
+    {
+        foreach (var kv in new List<Text>(errorClearAt.Keys))
+            if (kv != null) kv.text = "";
+        errorClearAt.Clear();
+    }
+
+    private void UpdateErrors()
+    {
+        if (errorClearAt.Count == 0) return;
+        List<Text> done = null;
+        foreach (var kv in errorClearAt)
+        {
+            if (Time.unscaledTime < kv.Value) continue;
+            (done ??= new List<Text>()).Add(kv.Key);
+        }
+        if (done == null) return;
+        foreach (var t in done) { if (t != null) t.text = ""; errorClearAt.Remove(t); }
     }
 
     private void OnClickStartGame()
     {
         string nick = (titleNicknameInput != null ? titleNicknameInput.text : "").Trim();
-        if (string.IsNullOrEmpty(nick)) { Toast("닉네임을 입력하세요"); return; }
-        if (bootstrap == null) { Toast("연결 준비 중..."); return; }
-        bool ok = bootstrap.BeginLogin(nick);
-        if (ok) GoTo(Screen.Connecting);
-        else Toast("로비 서버 연결 실패");
+        string pw = (titlePasswordInput != null ? titlePasswordInput.text : "");
+
+        if (string.IsNullOrEmpty(nick)) { ShowError(nickError, "닉네임을 입력하세요"); return; }
+        if (string.IsNullOrEmpty(pw)) { ShowError(pwError, "비밀번호를 입력하세요"); return; }
+        if (bootstrap == null) { ShowError(nickError, "연결 준비 중..."); return; }
+
+        pendingPassword = pw;      // 세션 후 로비 복귀 시 자동 재로그인용
+        LastPassword = pw;
+        if (bootstrap.BeginLogin(nick, pw)) GoTo(Screen.Connecting);
+        else ShowError(nickError, "로비 서버에 연결할 수 없습니다");
+    }
+
+    // ========================================================================
+    //  회원가입 / 비밀번호 찾기 모달 (두 화면이 구조가 같아 하나로 만든다)
+    // ========================================================================
+    private void BuildAccountModal()
+    {
+        accountModal = New("AccountModal", canvas.transform);
+        StretchFull(accountModal);
+        AddImage(accountModal, new Color(0, 0, 0, 0.75f));      // 뒤쪽 클릭 차단
+
+        var box = New("Box", accountModal.transform);
+        SetRect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(-280, -210), new Vector2(280, 210));
+        AddImage(box, ColPanel);
+
+        var edge = New("Edge", box.transform);
+        SetRect(edge, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -3), new Vector2(0, 0));
+        AddImage(edge, new Color(0.78f, 0.64f, 0.36f, 0.8f));   // 상단 금색 라인
+
+        var titleGo = New("T", box.transform);
+        SetRect(titleGo, new Vector2(0, 1), new Vector2(1, 1), new Vector2(28, -64), new Vector2(-70, -18));
+        accountTitle = AddText(titleGo, "회원 가입", 26, ColTan, TextAnchor.MiddleLeft);
+        accountTitle.fontStyle = FontStyle.Bold;
+
+        // 우상단 X
+        MakeButton(box.transform, "X",
+            new Vector2(1, 1), new Vector2(1, 1), new Vector2(-56, -60), new Vector2(-14, -18),
+            ColBtnDanger, 18, HideAccountModal);
+
+        // 닉네임
+        MakeFieldLabel(box.transform, "닉네임", -96);
+        acNick = MakeInputField(box.transform, new Vector2(0, 1), new Vector2(0, 1),
+            new Vector2(140, -120), new Vector2(400, -80), "닉네임", "", 18);
+        acNick.characterLimit = 0;
+        acNick.onValueChanged.AddListener(OnModalNickChanged);
+
+        // 새 비밀번호
+        MakeFieldLabel(box.transform, "새 비밀번호", -148);
+        acPw1 = MakeInputField(box.transform, new Vector2(0, 1), new Vector2(0, 1),
+            new Vector2(140, -172), new Vector2(400, -132), "새 비밀번호", "", 18);
+        acPw1.contentType = InputField.ContentType.Password;
+        acPw1.characterLimit = 32;
+
+        // 새 비밀번호 확인 + 보기 체크박스
+        MakeFieldLabel(box.transform, "비밀번호 확인", -200);
+        acPw2 = MakeInputField(box.transform, new Vector2(0, 1), new Vector2(0, 1),
+            new Vector2(140, -224), new Vector2(400, -184), "한 번 더 입력", "", 18);
+        acPw2.contentType = InputField.ContentType.Password;
+        acPw2.characterLimit = 32;
+
+        acShowPwBtn = MakeButton(box.transform, "☐ 표시",
+            new Vector2(0, 1), new Vector2(0, 1), new Vector2(410, -224), new Vector2(524, -184),
+            ColBtn, 15, ToggleShowPassword);
+        acShowPwLabel = acShowPwBtn.GetComponentInChildren<Text>();
+
+        // 오류 문구는 비밀번호 확인 칸 아래 빈 공간에 모아서 띄운다.
+        // 닉네임/비밀번호 어느 쪽 오류든 여기 한 곳에 나온다.
+        var errGo = New("Err", box.transform);
+        SetRect(errGo, new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(28, -272), new Vector2(-28, -236));
+        acPwError = AddText(errGo, "", 15, ColError, TextAnchor.MiddleCenter);
+        acPwError.horizontalOverflow = HorizontalWrapMode.Overflow;
+        acNickError = acPwError;        // 같은 자리를 공유
+
+        // 확인 버튼
+        acSubmitBtn = MakeButton(box.transform, "생성",
+            new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-130, 24), new Vector2(130, 78),
+            ColBtnStart, 22, OnClickAccountSubmit);
+        acSubmitLabel = acSubmitBtn.GetComponentInChildren<Text>();
+        acSubmitLabel.color = ColOnBright;
+
+        accountModal.SetActive(false);
+    }
+
+    private void MakeFieldLabel(Transform parent, string s, float yTop)
+    {
+        var go = New("L", parent);
+        SetRect(go, new Vector2(0, 1), new Vector2(0, 1), new Vector2(28, yTop - 24), new Vector2(136, yTop + 16));
+        AddText(go, s, 16, ColTextDim, TextAnchor.MiddleLeft);
+    }
+
+    private void ToggleShowPassword()
+    {
+        showPassword = !showPassword;
+        var ct = showPassword ? InputField.ContentType.Standard : InputField.ContentType.Password;
+        if (acPw1 != null) { acPw1.contentType = ct; acPw1.ForceLabelUpdate(); }
+        if (acPw2 != null) { acPw2.contentType = ct; acPw2.ForceLabelUpdate(); }
+        if (acShowPwLabel != null) acShowPwLabel.text = showPassword ? "☑ 표시" : "☐ 표시";
+    }
+
+    private void ShowAccountModal(bool register)
+    {
+        accountRegisterMode = register;
+        accountTitle.text = register ? "회원 가입" : "비밀번호 찾기";
+        acSubmitLabel.text = register ? "생성" : "저장";
+
+        acNick.text = ""; acPw1.text = ""; acPw2.text = "";
+        acNickError.text = ""; acPwError.text = "";
+        showPassword = false;
+        if (acShowPwLabel != null) acShowPwLabel.text = "☐ 표시";
+        acPw1.contentType = InputField.ContentType.Password;
+        acPw2.contentType = InputField.ContentType.Password;
+
+        accountModal.SetActive(true);
+        acNick.ActivateInputField();
+    }
+
+    private void HideAccountModal()
+    {
+        if (accountModal != null) accountModal.SetActive(false);
+    }
+
+    // 모달 안 닉네임도 시작 화면과 같은 글자수 규칙을 쓴다.
+    private void OnModalNickChanged(string value)
+    {
+        if (DisplayWidth(value) <= NickWidthLimit) { lastValidModalNick = value; return; }
+        acNick.text = lastValidModalNick;
+        ShowError(acNickError, NickLabelWarn);
+    }
+
+    private void OnClickAccountSubmit()
+    {
+        string nick = (acNick.text ?? "").Trim();
+        string p1 = acPw1.text ?? "";
+        string p2 = acPw2.text ?? "";
+
+        if (string.IsNullOrEmpty(nick)) { ShowError(acNickError, "닉네임을 입력하세요"); return; }
+        if (string.IsNullOrEmpty(p1)) { ShowError(acPwError, "새 비밀번호를 입력하세요"); return; }
+        if (p1 != p2) { ShowError(acPwError, "비밀번호가 일치하지 않습니다"); return; }
+        if (bootstrap == null || bootstrap.Lobby == null || !bootstrap.Lobby.IsConnected)
+        {
+            // 타이틀에서는 아직 로비에 붙기 전이다. 계정 작업만 하려고 연결한다.
+            if (bootstrap == null || !bootstrap.ConnectLobbyOnly())
+            {
+                ShowError(acNickError, "로비 서버에 연결할 수 없습니다");
+                return;
+            }
+        }
+
+        if (accountRegisterMode) bootstrap.Lobby.SendRegister(nick, p1);
+        else bootstrap.Lobby.SendResetPassword(nick, p1);
     }
 
     private void BuildConnecting()
@@ -509,6 +993,8 @@ public class LobbyUI : MonoBehaviour
     {
         mainPanel = New("MainPanel", canvas.transform);
         StretchFull(mainPanel);
+        MakeButton(mainPanel.transform,"설정",new Vector2(1,0),new Vector2(1,0),new Vector2(-190,32),new Vector2(-32,86),ColBtnTan,20,GameOptions.Open);
+        MakeButton(mainPanel.transform,"보관함 / 상점",new Vector2(0,0),new Vector2(0,0),new Vector2(32,32),new Vector2(290,90),ColBtnTan,20,EconomyClient.Open);
 
         // 좌상단 닉네임
         var nameBox = New("NameBox", mainPanel.transform);
@@ -530,6 +1016,9 @@ public class LobbyUI : MonoBehaviour
         AddText(wm, "R E T R Y", 30, ColTan, TextAnchor.MiddleCenter).fontStyle = FontStyle.Bold;
 
         // 우상단 버튼
+        MakeButton(mainPanel.transform, "플레이 전적",
+            new Vector2(1, 1), new Vector2(1, 1), new Vector2(-660, -86), new Vector2(-458, -28),
+            ColBtn, 20, OnClickStats);
         MakeButton(mainPanel.transform, "파티 찾기",
             new Vector2(1, 1), new Vector2(1, 1), new Vector2(-446, -86), new Vector2(-244, -28),
             ColBtn, 20, OnClickFind);
@@ -540,7 +1029,7 @@ public class LobbyUI : MonoBehaviour
         // 중앙 안내(캐릭터 자리는 비움)
         var hint = New("CenterHint", mainPanel.transform);
         SetRect(hint, new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 96), new Vector2(0, 132));
-        AddText(hint, "파티 찾기 또는 파티 만들기로 파티에 참가하세요", 16, ColTextDim, TextAnchor.MiddleCenter);
+        // (안내 문구 삭제: 색이 너무 어두워 잘 보이지 않았음)
     }
 
     private void BuildCreate()
@@ -662,7 +1151,7 @@ public class LobbyUI : MonoBehaviour
         profileLabel = AddText(profTxt, "", 17, ColText, TextAnchor.MiddleLeft);
 
         gridContainer = New("Grid", box.transform);
-        SetRect(gridContainer, new Vector2(0, 0), new Vector2(1, 1), new Vector2(20, 96), new Vector2(-20, -110));
+        SetRect(gridContainer, new Vector2(0, 0), new Vector2(1, 1), new Vector2(20, 280), new Vector2(-20, -110));
         var grid = gridContainer.AddComponent<GridLayoutGroup>();
         grid.padding = new RectOffset(8, 8, 8, 8);
         grid.spacing = new Vector2(10, 10);
@@ -673,17 +1162,139 @@ public class LobbyUI : MonoBehaviour
         grid.childAlignment = TextAnchor.UpperLeft;
         grid.cellSize = new Vector2(170, 150);
 
+        BuildPartyChat(box.transform);
+
+        // 좌: 파티 나가기 / 우: 파티 시작(방장) 또는 준비(파티원). 비슷한 크기의 정사각형.
+        leaveBtn = MakeButton(box.transform, "파티 나가기",
+            new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-134, 12), new Vector2(-14, 112),
+            ColBtnDanger, 18, OnClickLeave);
+
         startBtn = MakeButton(box.transform, "파티 시작",
-            new Vector2(0, 0), new Vector2(1, 0), new Vector2(28, 48), new Vector2(-28, 86),
-            ColBtnTan, 22, OnClickStartRaid);
-        MakeButton(box.transform, "파티 나가기",
-            new Vector2(0, 0), new Vector2(1, 0), new Vector2(28, 10), new Vector2(-28, 44),
-            ColBtnDanger, 15, OnClickLeave);
+            new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(14, 12), new Vector2(134, 112),
+            ColBtnTan, 18, OnClickStartOrReady);
+        startBtnLabel = startBtn.GetComponentInChildren<Text>();
+    }
+
+    // 파티 대기실 전용 채팅창. 위젯만 만들고 동작은 ChatUI가 맡는다.
+    private void BuildPartyChat(Transform parent)
+    {
+        var panel = New("PartyChat", parent);
+        // 높이 148 - (아래 입력칸 38 + 위 여백 8) = 뷰포트 102px ≈ 6줄
+        SetRect(panel, new Vector2(0, 0), new Vector2(1, 0), new Vector2(28, 124), new Vector2(-28, 272));
+        AddImage(panel, ColPanel2);
+
+        // 스크롤 영역. 줄이 늘어나도 잘리지 않고 아래로 밀린다.
+        var viewport = New("Viewport", panel.transform);
+        SetRect(viewport, new Vector2(0, 0), new Vector2(1, 1), new Vector2(10, 38), new Vector2(-10, -8));
+        AddImage(viewport, new Color(0, 0, 0, 0.001f));       // Mask용 최소 그래픽
+        viewport.AddComponent<RectMask2D>();
+
+        var content = New("Content", viewport.transform);
+        var crt = RT(content);
+        crt.anchorMin = new Vector2(0, 0);
+        crt.anchorMax = new Vector2(1, 0);
+        crt.pivot = new Vector2(0.5f, 0f);
+        crt.offsetMin = new Vector2(0, 0);
+        crt.offsetMax = new Vector2(0, 0);
+
+        var log = AddText(content, "", 14, ColText, TextAnchor.LowerLeft);
+        log.supportRichText = true;
+        var fit = content.AddComponent<ContentSizeFitter>();
+        fit.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+
+        var scroll = panel.AddComponent<ScrollRect>();
+        scroll.content = crt;
+        scroll.viewport = RT(viewport);
+        scroll.horizontal = false;
+        scroll.vertical = true;
+        scroll.movementType = ScrollRect.MovementType.Clamped;
+        scroll.scrollSensitivity = 18f;
+
+        // 입력칸 윗변(38)을 뷰포트 아랫변(38)에 딱 맞춰 붙인다.
+        var fieldGo = New("Field", panel.transform);
+        SetRect(fieldGo, new Vector2(0, 0), new Vector2(1, 0), new Vector2(10, 4), new Vector2(-10, 38));
+        AddImage(fieldGo, new Color(1f, 1f, 1f, 0.06f));
+
+        var fieldTxtGo = New("Txt", fieldGo.transform);
+        SetRect(fieldTxtGo, Vector2.zero, Vector2.one, new Vector2(8, 0), new Vector2(-8, 0));
+        var fieldTxt = AddText(fieldTxtGo, "", 14, ColText, TextAnchor.MiddleLeft);
+        fieldTxt.supportRichText = false;
+
+        var field = fieldGo.AddComponent<InputField>();
+        field.textComponent = fieldTxt;
+        field.lineType = InputField.LineType.SingleLine;
+        field.characterLimit = 40;
+
+        bootstrap.Chat?.BindPartyPanel(panel, log, field);
     }
 
     // ========================================================================
     //  헬퍼
     // ========================================================================
+    // ========================================================================
+    //  플레이 전적
+    // ========================================================================
+    private void BuildStatsPanel()
+    {
+        statsPanel = New("StatsPanel", canvas.transform);
+        StretchFull(statsPanel);
+        AddImage(statsPanel, new Color(0, 0, 0, 0.75f));
+
+        var box = New("Box", statsPanel.transform);
+        SetRect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(-260, -190), new Vector2(260, 190));
+        AddImage(box, ColPanel);
+
+        var edge = New("Edge", box.transform);
+        SetRect(edge, new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -3), new Vector2(0, 0));
+        AddImage(edge, new Color(0.78f, 0.64f, 0.36f, 0.8f));
+
+        var t = New("T", box.transform);
+        SetRect(t, new Vector2(0, 1), new Vector2(1, 1), new Vector2(28, -64), new Vector2(-70, -18));
+        AddText(t, "플레이 전적", 26, ColTan, TextAnchor.MiddleLeft).fontStyle = FontStyle.Bold;
+
+        MakeButton(box.transform, "X",
+            new Vector2(1, 1), new Vector2(1, 1), new Vector2(-56, -60), new Vector2(-14, -18),
+            ColBtnDanger, 18, () => statsPanel.SetActive(false));
+
+        var bodyGo = New("Body", box.transform);
+        SetRect(bodyGo, new Vector2(0, 0), new Vector2(1, 1), new Vector2(30, 24), new Vector2(-30, -76));
+        statsBody = AddText(bodyGo, "불러오는 중...", 19, ColText, TextAnchor.UpperLeft);
+        statsBody.lineSpacing = 1.6f;
+
+        statsPanel.SetActive(false);
+    }
+
+    private void OnClickStats()
+    {
+        if (statsPanel == null) BuildStatsPanel();
+        statsBody.text = "불러오는 중...";
+        statsPanel.SetActive(true);
+        bootstrap.Lobby?.SendStatsRequest();
+    }
+
+    private void ShowStats(PlayerStatsResult s)
+    {
+        if (statsPanel == null) BuildStatsPanel();
+        statsPanel.SetActive(true);
+
+        if (s.success == 0)
+        {
+            statsBody.text = "전적을 불러오지 못했습니다.\n(DB에 연결되어 있지 않을 수 있습니다)";
+            return;
+        }
+
+        float rate = s.totalRuns > 0 ? 100f * s.totalExtractions / s.totalRuns : 0f;
+        int m = s.bestSeconds / 60, sec = s.bestSeconds % 60;
+
+        statsBody.text =
+            $"총 플레이        {s.totalRuns} 판\n" +
+            $"탈출 성공        {s.totalExtractions} 회   ({rate:F1}%)\n" +
+            $"처치한 몬스터    {s.monsterKills}\n" +
+            $"처치한 플레이어  {s.playerKills}\n" +
+            $"최장 생존        {m:00}:{sec:00}";
+    }
+
     private void BuildGuide()
     {
         guidePanel = New("GuidePanel", canvas.transform);
@@ -754,18 +1365,34 @@ public class LobbyUI : MonoBehaviour
 "- 파티 만들기: 새 파티(세션)를 직접 개설하고 방장이 됩니다.\n" +
 "- 파티 찾기: 열려 있는 파티 목록에서 골라 참가합니다.\n" +
 "- 대기실의 5x2 팀 슬롯에서 원하는 팀(최대 3명)을 선택할 수 있습니다. 같은 팀끼리 같은 시작 방에서 출발합니다.\n" +
-"- 방장이 '파티 시작'을 누르면 모든 팀원이 함께 던전으로 투입됩니다.\n" +
+"- 방장이 [파티 시작]을 누르면 모든 팀원이 함께 던전으로 투입됩니다.\n" +
 "\n" +
 "[ 기본 조작 ]\n" +
-"- 이동: W A S D\n" +
+"- 이동: W A S D  또는 방향키\n" +
 "- 카메라: 마우스 이동\n" +
-"- 공격: 마우스 좌클릭\n" +
+"- 공격: 마우스 좌클릭 (연타하면 4타까지 이어집니다)\n" +
 "- 달리기: Shift\n" +
+"- 점프: Space\n" +
+"- 대상 고정: R\n" +
+"- 줍기 / 상호작용: F\n" +
+"- 인벤토리 & 장비창: I\n" +
+"- 채팅: Enter로 입력창 열기, 던전에서는 Tab으로 [파티] / [팀] 전환, Esc로 취소\n" +
+"- 메뉴: Esc\n" +
+"\n" +
+"[ 스태미나 ]\n" +
+"- 최대 100. 공격 1회에 2, 달리는 동안 0.2초마다 1이 줄어듭니다.\n" +
+"- 소모를 멈추고 1초가 지나면 0.1초마다 1씩 회복됩니다. 걷는 것은 회복을 막지 않습니다.\n" +
+"- 바닥나면 달릴 수도, 공격할 수도 없습니다. 보스전은 한 사람당 스태미나를 한 바퀴 넘게 쓰도록 맞춰져 있으니 치고 빠지며 회복 타이밍을 나누세요.\n" +
 "\n" +
 "[ 전투 팁 ]\n" +
-"- 몬스터는 종류마다 공격 패턴과 체력이 다릅니다. 무리하게 어그로를 끌지 말고 하나씩 정리하세요.\n" +
+"- 몬스터는 일반 / 정예 / 보스로 나뉘며 체력과 공격력이 크게 다릅니다. 보스는 몇 대만 맞아도 쓰러지니 정면으로 버티지 마세요.\n" +
 "- 다른 팀과 마주치면 교전할지 피할지 빠르게 판단하세요. 전투 중 제3의 팀이 끼어들 수 있습니다.\n" +
 "- 체력이 부족하면 욕심내지 말고 탈출 지점으로 향하는 것이 이득일 때가 많습니다.\n" +
+"\n" +
+"[ 탈출 ]\n" +
+"- 던전 어딘가의 탈출 포탈 안에서 3초를 버티면 탈출에 성공합니다.\n" +
+"- 버티는 동안 포탈 밖으로 나가면 처음부터 다시 채워야 하고, 그 사이 다른 팀에게 노출되기 쉬우니 주변을 먼저 정리하세요.\n" +
+"- 탈출하거나 사망하면 진행 시간과 처치한 몬스터 / 플레이어 수가 기록으로 남습니다.\n" +
 "\n" +
 "[ 시작해볼까요? ]\n" +
 "오른쪽 위의 [파티 찾기]로 열린 파티에 합류하거나, [파티 만들기]로 직접 파티를 만들어 게임을 시작해보세요. 행운을 빕니다!\n";
@@ -872,13 +1499,28 @@ public class LobbyUI : MonoBehaviour
         return btn;
     }
 
+    // 버튼 색을 런타임에 바꾼다. ColorBlock 전체를 갱신해야 실제로 적용된다.
+    private static void SetButtonColor(Button btn, Color c)
+    {
+        if (btn == null) return;
+        var cb = btn.colors;
+        if (cb.normalColor == c) return;
+        cb.normalColor = c;
+        cb.highlightedColor = Lighten(c, 0.16f);
+        cb.pressedColor = Lighten(c, -0.12f);
+        cb.selectedColor = c;
+        cb.disabledColor = new Color(c.r, c.g, c.b, 0.35f);
+        btn.colors = cb;
+        if (btn.targetGraphic != null) btn.targetGraphic.canvasRenderer.SetColor(c);
+    }
+
     private InputField MakeInputField(Transform parent,
         Vector2 aMin, Vector2 aMax, Vector2 oMin, Vector2 oMax,
         string placeholder, string initial, int fontSize)
     {
         var go = New("Input", parent);
         SetRect(go, aMin, aMax, oMin, oMax);
-        var bg = go.AddComponent<Image>(); bg.color = ColPanel2;
+        var bg = go.AddComponent<Image>(); bg.color = ColInput;
         var inp = go.AddComponent<InputField>();
 
         var ph = New("Placeholder", go.transform);

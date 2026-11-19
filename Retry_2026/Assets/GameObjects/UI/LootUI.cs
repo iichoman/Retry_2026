@@ -65,7 +65,7 @@ public class LootUI : MonoBehaviour
 
     public bool Open(LootContainer container, PlayerInventory playerInventory)
     {
-        if (container == null || playerInventory == null || !container.IsAvailable)
+        if (container == null || playerInventory == null || playerInventory.IsServerOwned || !container.IsAvailable)
         {
             return false;
         }

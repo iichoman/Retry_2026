@@ -34,6 +34,7 @@ public class Monster_Skull : Monster
 
     protected override void Tick()
     {
+        if(GetComponent<KnightHeavyAttack>()?.IsActive==true)return;
         if (behaviourTree == null)
         {
             return;

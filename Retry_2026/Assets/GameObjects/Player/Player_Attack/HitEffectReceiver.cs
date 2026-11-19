@@ -20,6 +20,12 @@ public class HitEffectReceiver : MonoBehaviour
         Quaternion spawnRotation = Quaternion.LookRotation(resolvedNormal, Vector3.up);
         Transform parent = parentToReceiver ? transform : null;
 
+        if (CombatVfxCatalog.Load() != null)
+        {
+            PooledVfxSpawner.Play(type == HitEffectType.Bullet ? CombatVfxKind.BulletHit : CombatVfxKind.SwordHit, spawnPosition, spawnRotation);
+            return;
+        }
+
         GameObject prefab = ResolvePrefab(type);
         if (prefab != null)
         {
@@ -35,6 +41,11 @@ public class HitEffectReceiver : MonoBehaviour
 
     public static void PlayBuiltInEffect(HitEffectType type, Vector3 position, Quaternion rotation, Transform parent = null)
     {
+        if (CombatVfxCatalog.Load() != null)
+        {
+            PooledVfxSpawner.Play(type == HitEffectType.Bullet ? CombatVfxKind.BulletHit : CombatVfxKind.SwordHit, position, rotation);
+            return;
+        }
         GameObject effectRoot = new GameObject($"{type} Hit Effect");
         effectRoot.transform.SetPositionAndRotation(position, rotation);
 

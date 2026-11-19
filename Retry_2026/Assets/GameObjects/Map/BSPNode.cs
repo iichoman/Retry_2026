@@ -34,12 +34,13 @@ public class BSPNode
         }
 
         bool splitVertical;
-        float ratio = (float)width / depth;
-        if (ratio >= aspectBias)
+        // Compare products: reciprocal rounding at the 4:5 boundary differed
+        // between Mono and C++, consuming a different random number sequence.
+        if (width >= depth * aspectBias)
         {
             splitVertical = true;
         }
-        else if (1f / ratio >= aspectBias)
+        else if (depth >= width * aspectBias)
         {
             splitVertical = false;
         }

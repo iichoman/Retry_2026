@@ -8,7 +8,6 @@ public class Player_Attack : MonoBehaviour
     [SerializeField] private Defalult_Input playerInput;
     [SerializeField] private Player_Camera_Action cameraAction;
     [SerializeField] private Player_State playerState;
-    [SerializeField] private Transform cameraTransform;
     [SerializeField] private string startingWeaponId = "test_sword";
     [SerializeField] private bool manageWeaponObjectVisibility = true;
     [SerializeField] private bool createOffhandGunVisual = true;
@@ -25,16 +24,23 @@ public class Player_Attack : MonoBehaviour
     private Animator cachedAnimator;
     private bool warnedMissingOffhandGunParent;
     private bool previousAttackInput;
+    private PlayerDefenseController defense;
+    private Player_LockOnSystem lockOn;
 
     public event Action<string> EquippedWeaponChanged;
+    public event Action<int> AttackAnimationStarted;
 
     public string EquippedWeaponId => equippedWeapon != null ? equippedWeapon.WeaponId : string.Empty;
     public WeaponGrade CurrentWeaponGrade => equippedWeapon != null ? equippedWeapon.Grade : WeaponGrade.Common;
     public int CurrentAttackDamage => equippedWeapon != null ? equippedWeapon.AttackDamage : 0;
     public int ActiveAnimationComboIndex { get; private set; }
+    public bool IsSwordEquipped => equippedWeapon is Weapon_Sword;
+    public bool IsGreatswordEquipped => equippedWeapon is GreatswordWeapon;
 
     private void Awake()
     {
+        defense = GetComponent<PlayerDefenseController>();
+        lockOn = GetComponent<Player_LockOnSystem>();
         if (playerInput == null)
         {
             playerInput = GetComponent<Defalult_Input>();
@@ -50,24 +56,11 @@ public class Player_Attack : MonoBehaviour
             playerState = GetComponent<Player_State>();
         }
 
-        if (cameraTransform == null)
-        {
-            Player_Camera_Controller cameraController = GetComponent<Player_Camera_Controller>();
-            if (cameraController != null)
-            {
-                cameraTransform = cameraController.CameraTransform;
-            }
-        }
-
-        if (cameraTransform == null && Camera.main != null)
-        {
-            cameraTransform = Camera.main.transform;
-        }
-
         cachedAnimator = GetComponentInChildren<Animator>();
 
         CollectWeapons();
         EquipStartingWeapon();
+        if (GetComponent<WeaponBackCarry>() == null) gameObject.AddComponent<WeaponBackCarry>();
     }
 
     private void Update()
@@ -79,9 +72,11 @@ public class Player_Attack : MonoBehaviour
 
         equippedWeapon.Tick(Time.deltaTime);
 
-        if (playerState != null && (playerState.IsDead || playerState.IsHit))
+        if (playerInput == null || !playerInput.isActiveAndEnabled || !playerInput.IsGameplayInputEnabled
+            || PlayerSkillView.Busy(gameObject) || (defense != null && defense.IsBusy) || (playerState != null && (playerState.IsDead || playerState.IsHit)))
         {
             previousAttackInput = playerInput != null && playerInput.Attack;
+            CancelCurrentAttack();
             return;
         }
 
@@ -91,31 +86,16 @@ public class Player_Attack : MonoBehaviour
 
         if (attackPressedThisFrame)
         {
-            if (ActiveAnimationComboIndex <= 0 && equippedWeapon is not Weapon_Gun)
-            {
-                FaceCameraForward();
-            }
+            // 스태미나가 모자라면 입력 자체를 무시한다(콤보 예약도 안 걸린다).
+            // 실제 차감은 모션이 시작될 때(NotifyAttackAnimationStarted) 한 번만 한다.
+            // 여기서 깎으면 쿨다운/콤보창 때문에 씹힌 입력까지 전부 깎여
+            // 4타 치는 데 30 가까이 날아간다.
+            if (PlayerStamina.Local != null && !PlayerStamina.Local.CanAttack) return;
+            if(ABClient.Active!=null && ABClient.Active.Supported && (ABClient.Active.State.statusMask&4)!=0)return;
 
+            if (ActiveAnimationComboIndex == 0) AlignAttackToLockOn();
             equippedWeapon.RequestAttack();
         }
-    }
-
-    private void FaceCameraForward()
-    {
-        if (cameraTransform == null)
-        {
-            return;
-        }
-
-        Vector3 forward = cameraTransform.forward;
-        forward.y = 0f;
-
-        if (forward.sqrMagnitude <= 0.001f)
-        {
-            return;
-        }
-
-        transform.rotation = Quaternion.LookRotation(forward.normalized, Vector3.up);
     }
 
     public bool EquipWeapon(string weaponId)
@@ -137,6 +117,7 @@ public class Player_Attack : MonoBehaviour
     public bool TryConsumeAttackAnimationRequest(out int comboIndex)
     {
         comboIndex = 0;
+        if ((defense != null && defense.IsBusy) || playerInput == null || !playerInput.IsGameplayInputEnabled) return false;
         return equippedWeapon != null && equippedWeapon.TryConsumeAnimationRequest(out comboIndex);
     }
 
@@ -148,9 +129,28 @@ public class Player_Attack : MonoBehaviour
 
     public void NotifyAttackAnimationStarted(int comboIndex)
     {
+        GetComponent<WeaponBackCarry>()?.RestoreGrip();
+        AlignAttackToLockOn();
+        // 한 번 휘두를 때마다 정확히 1회. 콤보로 이어진 2·3·4타도 여기를 지난다.
+        PlayerStamina.Local?.SpendAttack();
+
         ActiveAnimationComboIndex = comboIndex;
         cameraAction?.BeginComboAttack(comboIndex);
         equippedWeapon?.OnAnimationStarted(comboIndex);
+        AttackAnimationStarted?.Invoke(comboIndex);
+    }
+
+    // Commit facing at each swing start. Do not chase a moving target mid-swing or rotate a roll.
+    // The network sender uses this same root direction, without changing the packet protocol.
+    public void AlignAttackToLockOn()
+    {
+        if (!IsSwordEquipped || lockOn == null || !lockOn.IsLockedOn
+            || PlayerSkillView.Busy(gameObject) || (defense != null && defense.IsBusy)
+            || playerInput == null || !playerInput.isActiveAndEnabled || !playerInput.IsGameplayInputEnabled
+            || (playerState != null && (playerState.IsDead || playerState.IsHit))) return;
+        // Actor positions update immediately; collider bounds may still be at the previous physics tick.
+        Vector3 direction = Vector3.ProjectOnPlane(lockOn.CurrentTarget.position - transform.position, Vector3.up);
+        if (direction.sqrMagnitude > .0001f) transform.rotation = Quaternion.LookRotation(direction);
     }
 
     public void NotifyAttackAnimationCompleted(int comboIndex)
@@ -473,6 +473,7 @@ public class Player_Attack : MonoBehaviour
         }
     }
 
+    public void UnequipWeapon(){CancelCurrentAttack();SetEquippedWeapon(null);}
     private void SetEquippedWeapon(IPlayerWeapon weapon)
     {
         if (ReferenceEquals(equippedWeapon, weapon))
@@ -481,7 +482,7 @@ public class Player_Attack : MonoBehaviour
             return;
         }
 
-        equippedWeapon?.CancelAttack();
+        CancelCurrentAttack();
         equippedWeapon = weapon;
         ActiveAnimationComboIndex = 0;
         RefreshWeaponVisuals();

@@ -1,0 +1,26 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ea3f637b0a377741b99a073d843d68e, type: 3}
+  m_Name: health_potion_t3
+  m_EditorClassIdentifier: Assembly-CSharp::ItemData
+  itemId: health_potion_t3
+  displayName: "\uCCB4\uB825\uBB3C\uC57D 3\uB4F1\uAE09"
+  itemType: 0
+  icon: {fileID: 21300000, guid: 1f0e5bf1756aa3b4c9bb1a51707a772a, type: 3}
+  slotBackground: {fileID: 0}
+  fallbackIconColor: {r: 1, g: 1, b: 1, a: 1}
+  maxStack: 16
+  description: "\uCD5C\uB300 \uCCB4\uB825\uC758 60% \uC989\uC2DC \uD68C\uBCF5."
+  rarity: 3
+  extractionValue: 90
+  bossExclusive: 0
+  questOnly: 0

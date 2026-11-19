@@ -20,6 +20,9 @@ public class MonsterSpawner : MonoBehaviour
     [SerializeField] private bool randomizeRotation = true;
 
     private readonly List<GameObject> spawnedMonsters = new List<GameObject>();
+    [SerializeField] private GameObject localBossPrefab;
+    [SerializeField] private GameObject knightElitePrefab;
+    [SerializeField] private GameObject mummyPrefab;
 
     private void OnEnable()
     {
@@ -50,6 +53,7 @@ public class MonsterSpawner : MonoBehaviour
     [ContextMenu("Spawn Monsters")]
     public void SpawnMonsters()
     {
+        if(NetworkRuntime.IsOnline) return;
         if (dungeonGenerator == null)
         {
             Debug.LogWarning("MonsterSpawner requires a DungeonGenerator_ChunkMesh reference.", this);
@@ -68,6 +72,16 @@ public class MonsterSpawner : MonoBehaviour
         IReadOnlyList<Room> rooms = dungeonGenerator.Rooms;
         foreach (Room room in rooms)
         {
+            if(room.type==RoomType.Boss)
+            {
+                SpawnBoss(room);
+                continue;
+            }
+            if (KnightEncounter.IsKnightRoom(room))
+            {
+                SpawnKnight(room);
+                continue;
+            }
             if (room.type != RoomType.Normal)
             {
                 continue;
@@ -75,6 +89,84 @@ public class MonsterSpawner : MonoBehaviour
 
             SpawnMonstersInRoom(room, random);
         }
+        SpawnCorridorMonsters(random);
+    }
+
+    static uint CorridorHash(int seed,Vector3Int tile)
+    {
+        unchecked{uint h=(uint)(seed^0x434D4F4E)^((uint)tile.x*73856093u)^((uint)tile.z*19349663u);h^=h>>16;h*=0x85ebca6bu;return h^(h>>13);}
+    }
+    void SpawnCorridorMonsters(System.Random random)
+    {
+        var unique=new HashSet<Vector3Int>();foreach(var corridor in dungeonGenerator.Corridors)unique.UnionWith(corridor.floorTiles);
+        var tiles=new List<Vector3Int>(unique);
+        tiles.Sort((a,b)=>{int order=CorridorHash(dungeonGenerator.seed,a).CompareTo(CorridorHash(dungeonGenerator.seed,b));return order!=0?order:a.x!=b.x?a.x.CompareTo(b.x):a.z.CompareTo(b.z);});
+        int count=0;
+        foreach(var tile in tiles){
+            if(count>=24)break;bool safe=tile.y==0;
+            foreach(var room in dungeonGenerator.Rooms){if(room.floorTiles.Contains(tile))safe=false;foreach(var door in room.doorwayFloorTiles)if(Mathf.Abs(door.x-tile.x)+Mathf.Abs(door.z-tile.z)<5)safe=false;}
+            foreach(var start in dungeonGenerator.GetAssignedStartRooms())if(tile.x>=start.bounds.xMin-12&&tile.x<start.bounds.xMax+12&&tile.z>=start.bounds.zMin-12&&tile.z<start.bounds.zMax+12)safe=false;
+            if(!safe)continue;
+            var point=dungeonGenerator.TileToWorldCenter(tile)+Vector3.up;
+            if(!NavMesh.SamplePosition(point,out var hit,.5f,NavMesh.AllAreas)||spawnedMonsters.Exists(m=>m!=null&&(m.transform.position-hit.position).sqrMagnitude<100))continue;
+            if(Physics.CheckSphere(hit.position+Vector3.up,.65f,LayerMask.GetMask("Wall","Default"),QueryTriggerInteraction.Ignore))continue;
+            var prefab=PickMonsterPrefab(random);if(prefab==null)continue;
+            var monster=Instantiate(prefab,hit.position,Quaternion.identity);monster.name="Corridor Monster";spawnedMonsters.Add(monster);count++;
+        }
+    }
+
+    private void SpawnKnight(Room room)
+    {
+        for (int i = 0; i < RoomBlueprint.GuardCount(dungeonGenerator.seed, room); i++) SpawnKnight(room, i);
+    }
+
+    private void SpawnKnight(Room room, int index)
+    {
+        if (knightElitePrefab == null) knightElitePrefab = Resources.Load<GameObject>("KnightElite");
+        if (knightElitePrefab == null) { Debug.LogError("Missing KnightElite prefab", this); return; }
+        // Exhaust the sorted, unblocked floor list: a random retry budget can silently omit a guardian.
+        var tiles = new List<Vector3Int>(room.floorTiles);
+        Vector3 center = RoomBlueprint.GuardTile(dungeonGenerator.seed, room, index);
+        tiles.Sort((a,b) => {
+            int distance = (a-center).sqrMagnitude.CompareTo((b-center).sqrMagnitude);
+            if (distance != 0) return distance;
+            return a.x != b.x ? a.x.CompareTo(b.x) : a.z.CompareTo(b.z);
+        });
+        foreach (var tile in tiles)
+        {
+            if (room.blockedTiles.Contains(tile)) continue;
+            // Floor voxels are one metre high; TileToWorldCenter only centers X/Z.
+            var candidate = dungeonGenerator.TileToWorldCenter(tile) + Vector3.up;
+            if (!NavMesh.SamplePosition(candidate, out var hit, .6f, NavMesh.AllAreas)) continue;
+            var landed = dungeonGenerator.WorldToTile(hit.position); landed.y = 0;
+            if (!room.floorTiles.Contains(landed) || room.blockedTiles.Contains(landed)) continue;
+            if (spawnedMonsters.Exists(m => m != null && (m.transform.position-hit.position).sqrMagnitude < 9)) continue;
+            var knight = Instantiate(knightElitePrefab, hit.position, Quaternion.identity);
+            knight.name = "KnightElite_Room_" + room.id;
+            spawnedMonsters.Add(knight);
+            return;
+        }
+        Debug.LogError($"No navigable tile for knight in reward room {room.id}", this);
+    }
+
+    private void SpawnBoss(Room room)
+    {
+        if(localBossPrefab==null || room.floorTiles.Count==0) return;
+        Vector3 center=dungeonGenerator.TileToWorld(room.bounds.position)+new Vector3(room.bounds.size.x*.5f,0,room.bounds.size.z*.5f);
+        Vector3 best=Vector3.zero; float distance=float.MaxValue;
+        foreach(var tile in room.floorTiles)
+        {
+            if(room.blockedTiles.Contains(tile)) continue;
+            Vector3 candidate=dungeonGenerator.TileToWorldCenter(tile);
+            if(!NavMesh.SamplePosition(candidate,out var hit,.6f,NavMesh.AllAreas)) continue;
+            float value=(hit.position-center).sqrMagnitude;
+            if(value<distance) {distance=value; best=hit.position;}
+        }
+        if(distance==float.MaxValue) {Debug.LogWarning("[LocalBoss] No navigable boss room spawn."); return;}
+        var boss=Instantiate(localBossPrefab,best,Quaternion.identity);
+        boss.name="LocalBoss_Room_"+room.id;
+        boss.GetComponent<LocalBossController>().Configure(dungeonGenerator,room);
+        spawnedMonsters.Add(boss);
     }
 
     [ContextMenu("Clear Spawned Monsters")]
@@ -111,6 +203,10 @@ public class MonsterSpawner : MonoBehaviour
         for (int i = 0; i < monstersPerNormalRoom; i++)
         {
             GameObject prefab = PickMonsterPrefab(random);
+            if(MummyMonster.SpawnsInRoom(dungeonGenerator.seed,room,i)) {
+                if(mummyPrefab==null)mummyPrefab=Resources.Load<GameObject>("Mummy");
+                if(mummyPrefab!=null)prefab=mummyPrefab;
+            }
             if (prefab == null)
             {
                 continue;

@@ -7,7 +7,7 @@ public class MonsterAlertEffect : MonoBehaviour
     [SerializeField] private Vector3 localOffset = new Vector3(0f, 2.55f, 0f);
     [SerializeField, Min(0.1f)] private float visibleDuration = 1.2f;
     [SerializeField, Min(0f)] private float cooldown = 1f;
-    [SerializeField, Min(0.001f)] private float worldScale = 0.01f;
+    [SerializeField, Min(0.001f)] private float worldScale = 0.006f;
     [SerializeField] private bool faceCamera = true;
     [SerializeField] private Camera targetCamera;
 
@@ -129,30 +129,20 @@ public class MonsterAlertEffect : MonoBehaviour
         bubbleShadow.effectColor = new Color(0f, 0f, 0f, 0.65f);
         bubbleShadow.effectDistance = new Vector2(5f, -5f);
 
-        GameObject mark = new GameObject("Alert Mark", typeof(RectTransform), typeof(Text));
-        mark.transform.SetParent(root.transform, false);
-        RectTransform markRect = mark.GetComponent<RectTransform>();
-        markRect.anchorMin = Vector2.zero;
-        markRect.anchorMax = Vector2.one;
-        markRect.offsetMin = Vector2.zero;
-        markRect.offsetMax = Vector2.zero;
+        // Two solid strokes stay crisp in world space without a dynamic font atlas.
+        CreateMarkStroke(root.transform, "Alert Stem", new Vector2(0, 11), new Vector2(11, 34));
+        CreateMarkStroke(root.transform, "Alert Dot", new Vector2(0, -18), new Vector2(11, 11));
+    }
 
-        Text text = mark.GetComponent<Text>();
-        text.raycastTarget = false;
-        text.text = "!";
-        text.alignment = TextAnchor.MiddleCenter;
-        text.fontSize = 86;
-        text.fontStyle = FontStyle.Bold;
-        text.color = Color.white;
-        text.supportRichText = false;
-
-        Outline textOutline = mark.AddComponent<Outline>();
-        textOutline.effectColor = new Color(0.18f, 0.02f, 0.01f, 0.95f);
-        textOutline.effectDistance = new Vector2(3f, -3f);
-
-        Shadow textShadow = mark.AddComponent<Shadow>();
-        textShadow.effectColor = new Color(0f, 0f, 0f, 0.75f);
-        textShadow.effectDistance = new Vector2(4f, -4f);
+    private static void CreateMarkStroke(Transform parent, string name, Vector2 position, Vector2 size)
+    {
+        var mark = new GameObject(name, typeof(RectTransform), typeof(Image));
+        mark.transform.SetParent(parent, false);
+        var rect = mark.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(.5f, .5f);
+        rect.anchoredPosition = position; rect.sizeDelta = size;
+        var image = mark.GetComponent<Image>(); image.color = Color.white; image.raycastTarget = false;
+        var shadow = mark.AddComponent<Shadow>(); shadow.effectColor = new Color(0, 0, 0, .65f); shadow.effectDistance = new Vector2(2, -2);
     }
 
     private Vector3 ResolveLocalOffset()

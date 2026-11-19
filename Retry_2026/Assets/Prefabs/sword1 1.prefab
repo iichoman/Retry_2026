@@ -5320,6 +5320,9 @@ MonoBehaviour:
   swingTrails:
   - {fileID: 7851345902934908053}
   ensureKinematicRigidbody: 1
+  forwardCleave: 0
+  cleaveLength: 3.5
+  cleaveWidth: 3
 --- !u!4 &7830835038902203388 stripped
 Transform:
   m_CorrespondingSourceObject: {fileID: -8679921383154817045, guid: ac9d48f978b2e1748a786787401110a7, type: 3}

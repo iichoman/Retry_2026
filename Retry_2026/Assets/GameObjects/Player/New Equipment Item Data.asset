@@ -13,12 +13,17 @@ MonoBehaviour:
   m_Name: New Equipment Item Data
   m_EditorClassIdentifier: Assembly-CSharp::EquipmentItemData
   itemId: sword_001
-  displayName: Sword
+  displayName: "\uC77C\uBC18 \uAC80"
   itemType: 1
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 096a2f0b025c28d45a483f9f1fedd4f8, type: 3}
   slotBackground: {fileID: 0}
-  fallbackIconColor: {r: 1, g: 1, b: 1, a: 1}
+  fallbackIconColor: {r: 0.3, g: 0.9, b: 0.45, a: 1}
   maxStack: 1
+  description: "\uC624\uB798\uB41C \uAC80\uC774\uB2E4."
+  rarity: 0
+  extractionValue: 100
+  bossExclusive: 0
+  questOnly: 0
   equipmentSlot: 0
   weaponId: test_sword
   maxHpBonus: 0

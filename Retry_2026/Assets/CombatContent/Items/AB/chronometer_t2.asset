@@ -1,0 +1,27 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 2ea3f637b0a377741b99a073d843d68e, type: 3}
+  m_Name: chronometer_t2
+  m_EditorClassIdentifier: Assembly-CSharp::ItemData
+  itemId: chronometer_t2
+  displayName: "\uC2DC\uAC04\uC758 \uBAA8\uB798\uC2DC\uACC4 2\uB4F1\uAE09"
+  itemType: 6
+  icon: {fileID: 21300000, guid: dbc1c2c457f7bfd40b4e195ac8400d64, type: 3}
+  slotBackground: {fileID: 0}
+  fallbackIconColor: {r: 1, g: 1, b: 1, a: 1}
+  maxStack: 1
+  description: "\uC2A4\uD0AC \uC7AC\uC0AC\uC6A9 \uB300\uAE30\uC2DC\uAC04 14% \uAC10\uC18C.
+    \uB808\uBCA8 \uAC15\uD654\uC640 \uD569\uC0B0 \uCD5C\uB300 50%."
+  rarity: 2
+  extractionValue: 200
+  bossExclusive: 0
+  questOnly: 0

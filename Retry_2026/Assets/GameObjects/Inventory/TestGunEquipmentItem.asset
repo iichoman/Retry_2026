@@ -13,12 +13,18 @@ MonoBehaviour:
   m_Name: TestGunEquipmentItem
   m_EditorClassIdentifier: Assembly-CSharp::EquipmentItemData
   itemId: gun_001
-  displayName: Test Gun
+  displayName: "\uAE30\uBCF8 \uCD1D"
   itemType: 1
-  icon: {fileID: 0}
+  icon: {fileID: 21300000, guid: 389c69c00ac4c2c42b2035ebca126085, type: 3}
   slotBackground: {fileID: 0}
-  fallbackIconColor: {r: 0.95, g: 0.82, b: 0.38, a: 1}
+  fallbackIconColor: {r: 0.3, g: 0.65, b: 1, a: 1}
   maxStack: 1
+  description: "\uAE30\uC874 \uAE30\uBCF8 \uCD1D. \uAE30\uBCF8 \uACF5\uACA9\uB825
+    10. \uD22C\uC0AC\uCCB4 \uACF5\uACA9."
+  rarity: 2
+  extractionValue: 350
+  bossExclusive: 0
+  questOnly: 0
   equipmentSlot: 0
   weaponId: test_gun
   maxHpBonus: 0

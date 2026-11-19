@@ -23,9 +23,24 @@ public class Player_LockOnSystem : MonoBehaviour
     [Header("Debug")]
     [SerializeField] private Transform currentTarget;
     [SerializeField] private bool drawGizmos = true;
-    [SerializeField] private bool logDebug = true;
+    [SerializeField] private bool logDebug = false;
 
-    private readonly Collider[] targetResults = new Collider[32];
+    [SerializeField, Min(0f)] private float occlusionGrace = .6f;
+    [SerializeField, Min(1f)] private float releaseDistanceMultiplier = 1.2f;
+    private float occludedTime;
+    private Player_State ownerState;
+    private Collider aimCollider;
+    private readonly RaycastHit[] sightHits = new RaycastHit[64];
+    private readonly Collider[] targetResults = new Collider[128];
+    public Vector3 TargetAimPosition => GetAimPosition(currentTarget, aimCollider);
+
+    private static Vector3 GetAimPosition(Transform target, Collider body)
+    {
+        if (target == null) return Vector3.zero;
+        if (body != null && body.enabled && body.bounds.size.y > .1f)
+            return body.bounds.center + Vector3.up * (body.bounds.extents.y * .25f);
+        return target.position + Vector3.up * 1.2f;
+    }
     private bool lockOnActive;
 
     public Transform CurrentTarget => currentTarget;
@@ -33,6 +48,7 @@ public class Player_LockOnSystem : MonoBehaviour
 
     private void Awake()
     {
+        ownerState = GetComponent<Player_State>();
         if (input == null)
         {
             input = GetComponent<Defalult_Input>();
@@ -63,6 +79,7 @@ public class Player_LockOnSystem : MonoBehaviour
         {
             input.HandleLockon -= ToggleLockOn;
         }
+        ClearLockOn();
     }
 
     private void Update()
@@ -72,14 +89,19 @@ public class Player_LockOnSystem : MonoBehaviour
             return;
         }
 
-        if (!IsTargetStillLockable(currentTarget))
+        if ((ownerState != null && ownerState.IsDead) || !IsTargetStillLockable(currentTarget))
         {
             ClearLockOn();
+            return;
         }
+        if (requireLineOfSight && !HasLineOfSight(currentTarget)) occludedTime += Time.deltaTime;
+        else occludedTime = 0;
+        if (occludedTime > occlusionGrace) ClearLockOn();
     }
 
     public void ToggleLockOn()
     {
+        if (input != null && !input.IsGameplayInputEnabled) return;
         if (lockOnActive)
         {
             ClearLockOn();
@@ -91,8 +113,11 @@ public class Player_LockOnSystem : MonoBehaviour
 
     public bool TryLockOn()
     {
+        if ((ownerState != null && ownerState.IsDead) || (input != null && !input.IsGameplayInputEnabled)) return false;
         Transform bestTarget = FindBestTarget();
         currentTarget = bestTarget;
+        aimCollider = currentTarget != null ? currentTarget.GetComponentInChildren<Collider>() : null;
+        occludedTime = 0;
         lockOnActive = currentTarget != null;
 
         if (logDebug)
@@ -116,6 +141,8 @@ public class Player_LockOnSystem : MonoBehaviour
         }
 
         currentTarget = null;
+        aimCollider = null;
+        occludedTime = 0;
         lockOnActive = false;
     }
 
@@ -142,45 +169,31 @@ public class Player_LockOnSystem : MonoBehaviour
         Transform bestTarget = null;
         float bestScore = float.MaxValue;
 
+        void Consider(Transform candidate)
+        {
+            if (!IsTargetVisibleAndLockable(candidate)) return;
+            Vector3 point = GetAimPosition(candidate, candidate.GetComponentInChildren<Collider>());
+            Vector3 viewport = targetCamera.WorldToViewportPoint(point);
+            float score = Vector2.Distance(new Vector2(viewport.x, viewport.y), viewportCenter) * centerScoreWeight
+                + Vector3.Distance(lockOnOrigin.position, candidate.position) * distanceScoreWeight;
+            if (score < bestScore) { bestScore = score; bestTarget = candidate; }
+        }
         for (int i = 0; i < hitCount; i++)
         {
-            Collider hit = targetResults[i];
-            targetResults[i] = null;
-
-            if (hit == null)
-            {
-                continue;
-            }
-
-            Transform candidate = ResolveTarget(hit.transform);
-            if (!IsTargetVisibleAndLockable(candidate))
-            {
-                continue;
-            }
-
-            Vector3 viewportPosition = targetCamera.WorldToViewportPoint(candidate.position);
-            float centerDistance = Vector2.Distance(
-                new Vector2(viewportPosition.x, viewportPosition.y),
-                viewportCenter
-            );
-            float worldDistance = Vector3.Distance(lockOnOrigin.position, candidate.position);
-            float score = centerDistance * centerScoreWeight + worldDistance * distanceScoreWeight;
-
-            if (score >= bestScore)
-            {
-                continue;
-            }
-
-            bestScore = score;
-            bestTarget = candidate;
+            var hit = targetResults[i]; targetResults[i] = null;
+            if (hit != null) Consider(ResolveTarget(hit.transform));
         }
+        // Remote CharacterControllers are disabled; enumerate actors only on user acquisition,
+        // not every frame, so network players remain selectable without adding physics authority.
+        foreach (var player in FindObjectsByType<Player_State>(FindObjectsSortMode.None))
+            if (player.GetComponentInParent<RemotePlayerRegistry>() != null) Consider(player.transform);
 
         return bestTarget;
     }
 
     private bool IsTargetStillLockable(Transform target)
     {
-        if (target == null || targetCamera == null || lockOnOrigin == null)
+        if (target == null || !target.gameObject.activeInHierarchy || target == transform || target.IsChildOf(transform) || targetCamera == null || lockOnOrigin == null)
         {
             return false;
         }
@@ -191,12 +204,12 @@ public class Player_LockOnSystem : MonoBehaviour
         }
 
         float distance = Vector3.Distance(lockOnOrigin.position, target.position);
-        if (distance > maxLockOnDistance)
+        if (distance > maxLockOnDistance * releaseDistanceMultiplier)
         {
             return false;
         }
 
-        return !requireLineOfSight || HasLineOfSight(target);
+        return true;
     }
 
     private bool IsTargetVisibleAndLockable(Transform target)
@@ -206,7 +219,8 @@ public class Player_LockOnSystem : MonoBehaviour
             return false;
         }
 
-        Vector3 viewportPosition = targetCamera.WorldToViewportPoint(target.position);
+        if (Vector3.Distance(lockOnOrigin.position, target.position) > maxLockOnDistance || (requireLineOfSight && !HasLineOfSight(target))) return false;
+        Vector3 viewportPosition = targetCamera.WorldToViewportPoint(GetAimPosition(target, target.GetComponentInChildren<Collider>()));
         bool isVisible =
             viewportPosition.z > 0f &&
             viewportPosition.x >= 0f &&
@@ -225,7 +239,7 @@ public class Player_LockOnSystem : MonoBehaviour
     private bool HasLineOfSight(Transform target)
     {
         Vector3 origin = lockOnOrigin.position + Vector3.up * lineOfSightOriginHeight;
-        Vector3 targetPosition = target.position;
+        Vector3 targetPosition = GetAimPosition(target, target == currentTarget ? aimCollider : target.GetComponentInChildren<Collider>());
         Vector3 direction = targetPosition - origin;
         float distance = direction.magnitude;
 
@@ -234,16 +248,21 @@ public class Player_LockOnSystem : MonoBehaviour
             return true;
         }
 
-        if (!Physics.Raycast(origin, direction / distance, out RaycastHit hit, distance, lineOfSightBlockers, QueryTriggerInteraction.Ignore))
+        int count = Physics.RaycastNonAlloc(origin, direction / distance, sightHits, distance, lineOfSightBlockers, QueryTriggerInteraction.Ignore);
+        if (count == sightHits.Length) return false;
+        for (int i = 0; i < count; i++)
         {
-            return true;
+            Transform hit = sightHits[i].transform;
+            if (hit == null || hit == transform || hit.IsChildOf(transform) || hit == target || hit.IsChildOf(target)) continue;
+            return false;
         }
-
-        return hit.transform == target || hit.transform.IsChildOf(target);
+        return true;
     }
 
     private bool IsTargetAlive(Transform target)
     {
+        Player_State player = target.GetComponentInParent<Player_State>();
+        if (player != null) return !player.IsDead;
         Monster_State state = target.GetComponent<Monster_State>();
         if (state == null)
         {
@@ -260,6 +279,10 @@ public class Player_LockOnSystem : MonoBehaviour
             return null;
         }
 
+        Player_State player = candidate.GetComponentInParent<Player_State>();
+        if (player != null) return player.transform;
+        Monster_State state = candidate.GetComponentInParent<Monster_State>();
+        if (state != null) return state.transform;
         Monster monster = candidate.GetComponent<Monster>();
         if (monster == null)
         {
@@ -271,7 +294,7 @@ public class Player_LockOnSystem : MonoBehaviour
             return monster.transform;
         }
 
-        return candidate;
+        return null; // Scenery is never a combat target.
     }
 
     private void OnDrawGizmosSelected()

@@ -1,4 +1,4 @@
-using UnityEngine;
+﻿using UnityEngine;
 
 public class InventoryInputController : MonoBehaviour
 {
@@ -19,7 +19,7 @@ public class InventoryInputController : MonoBehaviour
 
         if (inventoryUI == null)
         {
-            inventoryUI = FindFirstObjectByType<InventoryUI>();
+            inventoryUI = FindFirstObjectByType<InventoryUI>(FindObjectsInactive.Include);
         }
     }
 
@@ -89,7 +89,11 @@ public class InventoryInputController : MonoBehaviour
             playerInput.SetInputMode(isOpen ? PlayerInputMode.UI : PlayerInputMode.Gameplay);
         }
 
-        if (showCursorWhenOpen)
+        if (GameplayCursorController.Active != null)
+        {
+            GameplayCursorController.Active.Refresh();
+        }
+        else if (showCursorWhenOpen)
         {
             Cursor.visible = isOpen;
             Cursor.lockState = isOpen ? CursorLockMode.None : gameplayCursorLockMode;

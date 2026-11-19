@@ -22,5 +22,5 @@ MonoBehaviour:
   hpBarFillSprite: {fileID: 0}
   hpBarBackgroundFallbackColor: {r: 0.08, g: 0.08, b: 0.08, a: 1}
   hpBarFillFallbackColor: {r: 0.75, g: 0.08, b: 0.08, a: 1}
-  missingIconSprite: {fileID: 0}
-  missingIconFallbackColor: {r: 0.7, g: 0.7, b: 0.7, a: 1}
+  missingIconSprite: {fileID: 21300000, guid: 9c82e33f1d39c08458f691473a9d7b9a, type: 3}
+  missingIconFallbackColor: {r: 1, g: 1, b: 1, a: 1}

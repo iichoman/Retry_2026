@@ -56,6 +56,7 @@ public class MonsterHitbox : MonoBehaviour
 
     private void OnTriggerEnter(Collider other)
     {
+        if (NetworkRuntime.IsOnline) return;
         if (!canHit)
         {
             return;
@@ -88,9 +89,14 @@ public class MonsterHitbox : MonoBehaviour
         }
 
         int damage = owner != null && owner.CurrentAttackDamage > 0 ? owner.CurrentAttackDamage : fallbackDamage;
-        damageable.TakeDamage(damage, owner != null ? owner.gameObject : gameObject);
-        PlayHitEffect(other);
         hitTargets.Add(damageable);
+        GameObject source = owner != null ? owner.gameObject : gameObject;
+        if (damageable is Player_State player)
+        {
+            if (!player.TryTakeMeleeDamage(damage, source)) return;
+        }
+        else damageable.TakeDamage(damage, source);
+        PlayHitEffect(other);
     }
 
     private void PlayHitEffect(Collider other)

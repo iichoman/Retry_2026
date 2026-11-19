@@ -5,7 +5,7 @@ using UnityEngine;
 [DisallowMultipleComponent]
 public class PlayerInventory : MonoBehaviour
 {
-    [SerializeField, Min(1)] private int capacity = 24;
+    [SerializeField, Min(1)] private int capacity = ItemCatalog.InventoryCapacity;
     [SerializeField] private List<InventorySlot> slots = new List<InventorySlot>();
     [SerializeField] private bool applyStartingItemsOnAwake = true;
     [SerializeField] private List<StartingInventoryEntry> startingItems = new List<StartingInventoryEntry>();
@@ -14,24 +14,30 @@ public class PlayerInventory : MonoBehaviour
 
     public int Capacity => capacity;
     public IReadOnlyList<InventorySlot> Slots => slots;
+    public bool IsServerOwned { get; private set; }
+    public int TotalCount { get { int total=0;foreach(var slot in slots)if(slot!=null&&!slot.IsEmpty)total+=slot.count;return total; } }
+
+    public int UsedSlots { get { int count = 0; foreach (var slot in slots) if (slot != null && !slot.IsEmpty) count++; return count; } }
 
     private bool startingItemsApplied;
 
     private void Awake()
     {
+        capacity=Mathf.Clamp(capacity,1,ItemCatalog.InventoryCapacity);
+        if (NetworkRuntime.IsOnline) SetServerOwned();
         EnsureSlotCount();
         ApplyStartingItems();
     }
 
     private void OnValidate()
     {
-        capacity = Mathf.Max(1, capacity);
+        capacity = Mathf.Clamp(capacity,1,ItemCatalog.InventoryCapacity);
         EnsureSlotCount();
     }
 
     public void ApplyStartingItems()
     {
-        if (!applyStartingItemsOnAwake || startingItemsApplied || startingItems == null)
+        if (IsServerOwned || !applyStartingItemsOnAwake || startingItemsApplied || startingItems == null)
         {
             return;
         }
@@ -51,12 +57,13 @@ public class PlayerInventory : MonoBehaviour
 
     public InventoryAddResult TryAddDetailed(ItemData item, int amount = 1)
     {
-        if (item == null || amount <= 0)
+        if (IsServerOwned || item == null || amount <= 0)
         {
             return InventoryAddResult.Empty(amount);
         }
 
         int remaining = amount;
+        int accepted = remaining;
 
         for (int i = 0; i < slots.Count && remaining > 0; i++)
         {
@@ -85,19 +92,19 @@ public class PlayerInventory : MonoBehaviour
             remaining -= moveCount;
         }
 
-        int added = amount - remaining;
+        int added = accepted - remaining;
         if (added <= 0)
         {
             return new InventoryAddResult(0, amount);
         }
 
         InventoryChanged?.Invoke(this);
-        return new InventoryAddResult(added, remaining);
+        return new InventoryAddResult(added, amount-added);
     }
 
     public bool TryRemove(ItemData item, int amount = 1)
     {
-        if (item == null || amount <= 0 || Count(item) < amount)
+        if (IsServerOwned || item == null || amount <= 0 || Count(item) < amount)
         {
             return false;
         }
@@ -128,7 +135,7 @@ public class PlayerInventory : MonoBehaviour
 
     public bool TryRemoveAt(int slotIndex, int amount = 1)
     {
-        if (!IsValidSlotIndex(slotIndex) || amount <= 0)
+        if (IsServerOwned || !IsValidSlotIndex(slotIndex) || amount <= 0)
         {
             return false;
         }
@@ -239,15 +246,59 @@ public class PlayerInventory : MonoBehaviour
         return true;
     }
 
-    /// <summary>∏µÁ ΩΩ∑‘ ∫ÒøÏ±‚. º≠πˆ ¿Œ∫•≈‰∏Æ µø±‚»≠(ServerInventoryBridge) ¿¸øÎ.</summary>
+    /// <summary>Î™®Îì† Ïä¨Î°Ø ÎπÑÏö∞Í∏∞. ÏÑúÎ≤Ñ Ïù∏Î≤§ÌÜ†Î¶¨ ÎèôÍ∏∞Ìôî(ServerInventoryBridge) Ï†ÑÏö©.</summary>
     public void ClearAll()
     {
+        if (IsServerOwned) return;
         for (int i = 0; i < slots.Count; i++)
         {
             slots[i].Clear();
         }
 
         InventoryChanged?.Invoke(this);
+    }
+
+    public void SetServerOwned()
+    {
+        IsServerOwned = true;
+        startingItemsApplied = true;
+        capacity = ItemCatalog.InventoryCapacity;
+        EnsureSlotCount();
+        foreach (var slot in slots) slot.Clear();
+        InventoryChanged?.Invoke(this);
+    }
+
+    /// <summary>Validate all entries first, then publish one atomic change. Never silently drop overflow.</summary>
+    public bool ApplyServerSnapshot(InventorySyncData snapshot, ItemCatalog catalog)
+    {
+        if (!IsServerOwned || catalog == null || snapshot.entries == null || snapshot.entryCount < 0 ||
+            snapshot.entryCount > snapshot.entries.Length || snapshot.entryCount > LootConst.MAX_INVENTORY_ENTRIES)
+            return false;
+        var next = new List<InventorySlot>(ItemCatalog.InventoryCapacity);
+        var seen = new HashSet<int>();
+        long total = 0;
+        for (int i = 0; i < snapshot.entryCount; i++)
+        {
+            var entry = snapshot.entries[i];
+            var item = catalog.Resolve(entry.itemHash);
+            if (item == null || entry.count <= 0 || !seen.Add(entry.itemHash)) return false;
+            total += entry.count;
+            int requiredSlots = (int)(((long)entry.count + item.MaxStack - 1) / item.MaxStack);
+            if (requiredSlots > ItemCatalog.InventoryCapacity - next.Count) return false;
+            int remaining = entry.count;
+            while (remaining > 0)
+            {
+                int count = Mathf.Min(remaining, item.MaxStack);
+                next.Add(new InventorySlot { item = item, count = count });
+                remaining -= count;
+            }
+        }
+        if (total != snapshot.totalCount) return false;
+        while (next.Count < ItemCatalog.InventoryCapacity) next.Add(new InventorySlot());
+        capacity = ItemCatalog.InventoryCapacity;
+        slots = next;
+        InventoryChanged?.Invoke(this);
+        return true;
     }
 
     public int Count(ItemData item)

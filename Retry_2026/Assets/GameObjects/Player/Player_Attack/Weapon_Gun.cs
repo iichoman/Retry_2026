@@ -313,6 +313,8 @@ public abstract class Weapon_Gun : MonoBehaviour, IPlayerWeapon
 
     private void FireProjectiles(GunFirePattern pattern)
     {
+        // Online projectiles and muzzle VFX come from PROJECTILE_SPAWN only.
+        if (NetworkRuntime.IsOnline) return;
         if (projectilePrefab == null || muzzleTransform == null || Owner == null)
         {
             return;

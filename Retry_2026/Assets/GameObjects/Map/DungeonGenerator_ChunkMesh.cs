@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Rendering;
@@ -12,19 +12,19 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
     //-------------------------------------------------------------------
 
     [Header("Map")]
-    public int mapSize = 750;
-    public int mapHeight = 10;
+    public int mapSize = 480;
+    public int mapHeight = 7;
 
     [Header("Rooms")]
-    public int baseRoomSize = 50;
-    public int targetRoomCount = 20;
-    public int minLeafSize = 100;
+    public int baseRoomSize = 32;
+    public int targetRoomCount = 36;
+    public int minLeafSize = 48;
     [Range(0f, 1f)] public float specialRoomLayoutChance = 0.45f;
     public int minimumLayoutInset = 2;
 
     [Header("Boss Rooms")]
     [Range(0, 2)] public int bossRoomCount = 1;
-    public Vector2Int bossRoomSize = new Vector2Int(90, 90);
+    public Vector2Int bossRoomSize = new Vector2Int(56, 56);
     public int bossRoomConnectionCount = 1;
     public int bossRoomOverlapPadding = 4;
 
@@ -32,7 +32,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
     public bool createExitRoom = true;
 
     [Header("Corridors")]
-    public int corridorWidth = 10;
+    public int corridorWidth = 6;
 
     [Header("Start Rooms")]
     public int startRoomEdgeMargin = 10;
@@ -54,8 +54,19 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
     public bool createCeilingCollider = true;
     public bool splitWallMeshesBySegment = false;
     public bool createWallSegmentColliders = false;
+    [Header("Procedural stone walls")]
+    public bool useProceduralStoneWalls = true;
+    [Min(.25f)] public float wallTextureWorldSize = 2f;
     public bool randomizeWallMaterialByTile = true;
     public int wallMaterialSeedOffset = 9137;
+    [Tooltip("Arrange the wall palette into a base, main masonry and cornice, with occasional broad accent bays. Render materials only; dungeon geometry and its random sequence are unchanged.")]
+    public bool coherentWallMaterialBands = true;
+    [Min(0)] public int wallBaseMaterialIndex = 1;
+    [Min(0)] public int wallMainMaterialIndex = 0;
+    [Min(0)] public int wallCorniceMaterialIndex = 2;
+
+    private const int WallAccentBayWidthTiles = 12;
+    private const int WallAccentBayFrequency = 5;
 
     [Header("Layers")]
     [SerializeField] private LayerMask dungeonRootLayer = 0;
@@ -115,6 +126,16 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
 
     public void GenerateDungeon()
     {
+        GenerateDungeonInternal(true);
+    }
+
+#if UNITY_EDITOR
+    // Runs the actual generation path without meshes/events for C++ layout parity checks.
+    public void GenerateDataForValidation() => GenerateDungeonInternal(false);
+#endif
+
+    private void GenerateDungeonInternal(bool createMeshes)
+    {
         if (randomizeSeedOnGenerate)
         {
             seed = UnityEngine.Random.Range(int.MinValue, int.MaxValue);
@@ -158,14 +179,18 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
         BuildCorridors(root, random);
         ConnectBossRoomsToDungeon(random);
         ConnectStartRoomsToDungeon(random);
+        RoomBlueprint.ApplyAll(this,rooms);
         AddRoomTiles();
         AddCorridorTiles();
         AddStartRoomTiles();
         BuildWallsAndCeiling();
         BuildWallSegments();
 
-        BuildChunkMeshes();
-        DungeonGenerated?.Invoke(this);
+        if (createMeshes)
+        {
+            BuildChunkMeshes();
+            DungeonGenerated?.Invoke(this);
+        }
     }
 
     //-------------------------------------------------------------------
@@ -1204,6 +1229,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
 
     private void BuildChunkMeshes()
     {
+        masonryFaces.Clear();
         Transform rootTransform = CreateOrClearRoot();
         SetLayerIfValid(rootTransform.gameObject, dungeonRootLayer);
 
@@ -1213,6 +1239,7 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
         SetLayerIfValid(floorRoot.gameObject, floorLayer);
         SetLayerIfValid(wallRoot.gameObject, wallLayer);
         SetLayerIfValid(ceilingRoot.gameObject, ceilingLayer);
+        masonryMaterials=useProceduralStoneWalls?wallRoot.gameObject.AddComponent<DungeonMasonryResources>().RoughMaterials(ResolveWallMaterials(wallMaterial)):null;
         Dictionary<string, MeshSectionData> sections = BuildMeshSections();
 
         CreateSectionObjects(sections, floorRoot, floorMaterial, createFloorCollider, SectionSurfaceType.Floor, floorLayer);
@@ -1322,6 +1349,11 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
     {
         foreach (MeshSectionData section in sections.Values)
         {
+            if (surfaceType == SectionSurfaceType.Wall && useProceduralStoneWalls)
+            {
+                CreateMasonrySection(section, parent, material, addCollider, layerMask);
+                continue;
+            }
             if (surfaceType == SectionSurfaceType.Wall && splitWallMeshesBySegment)
             {
                 CreateSplitWallSectionObject(section, parent, material, addCollider, layerMask);
@@ -1359,6 +1391,21 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
                 // collider.sharedMesh = mesh;
             }
         }
+    }
+
+    private readonly HashSet<Vector3Int> masonryFaces = new();
+    private Material[] masonryMaterials;
+    private void CreateMasonrySection(MeshSectionData section, Transform parent, Material material, bool addCollider, LayerMask layerMask)
+    {
+        var tiles = GetSectionSurfaceTiles(section, SectionSurfaceType.Wall);
+        if (tiles.Count == 0) return;
+        var go = new GameObject(section.name + "_Wall");go.transform.SetParent(parent,false);SetLayerIfValid(go,layerMask);
+        var resources = go.AddComponent<DungeonMasonryResources>();
+        // Physics retains the exact original cell mesh; bevels and individual stones never become colliders.
+        if(addCollider){var collision=BuildMeshForTiles(tiles);resources.Own(collision);go.AddComponent<MeshCollider>().sharedMesh=collision;}
+        DungeonStoneMesher.Create(go.transform,tiles,wallTiles,floorTiles,worldOffset,seed,mapHeight,
+            masonryMaterials??ResolveWallMaterials(material),Mathf.Max(.25f,wallTextureWorldSize),masonryFaces,resources,
+            (t,d,count)=>GetWallMaterialIndex(t,d,count));
     }
 
     private void CreateSplitWallSectionObject(
@@ -1727,6 +1774,35 @@ public class DungeonGenerator_ChunkMesh : MonoBehaviour
         if (materialCount <= 1)
         {
             return 0;
+        }
+
+        if (coherentWallMaterialBands)
+        {
+            // SampleScene's palette shares one albedo: 0 is the regular masonry,
+            // 1 the quieter base course and 2 the chipped cornice/accent variant.
+            // Keep a continuous course around corners instead of changing every face.
+            int selectedIndex;
+            if (tile.y <= 1)
+                selectedIndex = wallBaseMaterialIndex;
+            else if (tile.y >= Mathf.Max(2, mapHeight - 1))
+                selectedIndex = wallCorniceMaterialIndex;
+            else
+            {
+                // Hash broad XZ bays separately from the generation RNG. All heights
+                // and face directions in a bay agree, including opposing wall faces.
+                int bayX = Mathf.FloorToInt(tile.x / (float)WallAccentBayWidthTiles);
+                int bayZ = Mathf.FloorToInt(tile.z / (float)WallAccentBayWidthTiles);
+                int bayHash;
+                unchecked
+                {
+                    bayHash = (seed + wallMaterialSeedOffset) * 397 ^ bayX;
+                    bayHash = bayHash * 397 ^ bayZ;
+                }
+                selectedIndex = (bayHash & int.MaxValue) % WallAccentBayFrequency == 0
+                    ? wallCorniceMaterialIndex
+                    : wallMainMaterialIndex;
+            }
+            return Mathf.Clamp(selectedIndex, 0, materialCount - 1);
         }
 
         unchecked

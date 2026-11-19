@@ -1,4 +1,4 @@
-using System.Collections.Generic;
+﻿using System.Collections.Generic;
 using UnityEngine;
 
 [DisallowMultipleComponent]
@@ -9,6 +9,12 @@ public class EquipmentUI : MonoBehaviour
     [SerializeField] private List<EquipmentSlotUI> slotViews = new List<EquipmentSlotUI>();
     [SerializeField] private bool visibleOnStart;
 
+    // GameUIController.Awake가 먼저 돌면 이 패널이 Awake 전에 SetActive(false) 된다.
+    // 그러면 Awake가 "처음 켜지는 순간"으로 밀려서, i를 처음 눌러 켠 직후
+    // Awake의 SetVisible(false)가 다시 꺼버린다. (첫 i에 장비창만 안 뜨던 원인)
+    // 이미 외부에서 표시 요청을 받았으면 Awake는 건드리지 않는다. InventoryUI와 같은 방식.
+    private bool visibilityRequested;
+
     private void Awake()
     {
         if (root == null)
@@ -16,7 +22,10 @@ public class EquipmentUI : MonoBehaviour
             root = gameObject;
         }
 
-        SetVisible(visibleOnStart);
+        if (!visibilityRequested)
+        {
+            SetVisible(visibleOnStart);
+        }
     }
 
     private void OnEnable()
@@ -51,8 +60,30 @@ public class EquipmentUI : MonoBehaviour
         }
     }
 
+    /// <summary>표시 대상 PlayerEquipment를 지금 살아 있는 것으로 다시 잡는다.</summary>
+    public void RebindOwner(PlayerEquipment owner)
+    {
+        if (playerEquipment == owner) return;
+
+        if (playerEquipment != null) playerEquipment.EquipmentChanged -= Refresh;
+        playerEquipment = owner;
+        if (playerEquipment != null) playerEquipment.EquipmentChanged += Refresh;
+
+        BindSlotViews();
+        Refresh(playerEquipment);
+    }
+
     public void SetVisible(bool visible)
     {
+        visibilityRequested = true;
+
+        // 씬에 미리 박힌 참조는 네트워크로 새로 스폰된 캐릭터가 아니다.
+        // 열 때마다 현재 살아있는 것으로 다시 잡아야 빈 창이 뜨지 않는다.
+        if (visible && playerEquipment == null)
+        {
+            RebindOwner(FindFirstObjectByType<PlayerEquipment>());
+        }
+
         if (root != null)
         {
             root.SetActive(visible);

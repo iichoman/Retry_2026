@@ -23,6 +23,8 @@ public class NetworkBootstrap : MonoBehaviour
     [SerializeField] private GameObject localPlayerPrefab;
     [SerializeField] private GameObject remotePlayerPrefab;
     [SerializeField] private GameObject monsterPrefab;
+    [SerializeField] private GameObject bossPrefab;
+    [SerializeField] private CombatVfxCatalog combatVfxCatalog;
     [SerializeField] private GameObject projectilePrefab;   // 활/총 투사체(직육면체). 비우면 기본 Cube 생성.
 
     [Header("Dungeon")]
@@ -31,6 +33,9 @@ public class NetworkBootstrap : MonoBehaviour
 
     [Header("Player Settings")]
     [SerializeField] private string playerName = "Player";
+    [Header("Server Compatibility")]
+    [Tooltip("서버 v1/v2처럼 EQUIPMENT_SYNC가 없는 서버에서 시작 검 요청만 허용. 피해는 항상 서버 판정.")]
+    [SerializeField] private bool allowLegacyStartingSword = true;
 
     public LocalIdentity Identity { get; private set; }
     public LobbyClient Lobby { get; private set; }
@@ -41,6 +46,9 @@ public class NetworkBootstrap : MonoBehaviour
     public DebugLobbyUI DebugUI { get; private set; }
 
     public GameObject LocalPlayer { get; private set; }
+
+    /// <summary>전원 입장이 끝나 서버가 시작 신호를 보냈는가. 타이머/로딩화면 기준.</summary>
+    public bool SessionGameStarted { get; private set; }
     public event System.Action<PacketType, byte[]> LobbyPacket; // LobbyUI가 구독하는 로비 패킷 이벤트
 
     // 탈출 관련 서버 통보. ExitPortal / DungeonExitManager가 구독.
@@ -53,24 +61,63 @@ public class NetworkBootstrap : MonoBehaviour
     public event System.Action<ItemPickupResult> PickupResultReceived;
     public event System.Action<LootSpawnData> LootSpawnReceived;
     public event System.Action<LootRemovedData> LootRemovedReceived;
+    public event System.Action<EquipItemResult> EquipResultReceived;
+    public event System.Action<EquipmentSyncData> EquipmentSyncReceived;
+    public event System.Action<ExtractionLootResultData> ExtractionLootResultReceived;
+    public bool HasServerEquipment { get; private set; }
+    public int ServerWeaponKind { get; private set; }
+    public bool TryGetAttackWeaponKind(Player_Attack attack, out int kind)
+    {
+        if(ABClient.Active!=null && ABClient.Active.Supported){
+            int weapon = ABClient.Active.State.weapon;
+            kind = ABItemDefinitions.Find(weapon)?.IsGreatsword == true ? (int)WeaponKind.BIG_SWORD
+                : weapon == ItemHash.Of("gun_001") ? (int)WeaponKind.GUN : (int)WeaponKind.SWORD;
+            return weapon != 0;
+        }
+        kind = ServerWeaponKind;
+        if (HasServerEquipment) return true;
+        // This is a request using the legacy starting weapon, NOT fabricated equipment approval.
+        kind = (int)WeaponKind.SWORD;
+        return allowLegacyStartingSword && attack != null && attack.IsSwordEquipped && !attack.IsGreatswordEquipped;
+    }
 
     public ServerInventoryBridge Inventory { get; private set; }
+    public ChatUI Chat { get; private set; }
+
+    // 로비/세션 어느 쪽에서 오든 같은 이벤트로 올려준다.
+    public event System.Action<ChatMessageData> ChatMessageReceived;
     public RemoteLootRegistry RemoteLoot { get; private set; }
     public DebugCheatKeys Cheats { get; private set; }   // [테스트 전용]
 
     /// <summary>[치트] 탈출 방으로 이동 요청. 실제 이동은 서버가 수행한다.</summary>
+    /// <summary>[치트] 보스 방으로 이동 요청. 실제 이동은 서버가 수행한다.</summary>
+    public void RequestDebugTeleportBoss()
+    {
+        if (Session == null || !Session.IsConnected) return;
+        BeginDebugTeleport(RoomType.Boss);
+        Session.SendDebugTeleportBoss();
+    }
+
     public void RequestDebugTeleportExit()
     {
         if (Session == null || !Session.IsConnected) return;
-        pendingSelfTeleport = true;    // 다음 본인 PLAYER_MOVE를 위치에 반영
+        BeginDebugTeleport(RoomType.Exit);
         Session.SendDebugTeleportExit();
     }
 
     /// <summary>루팅 요청 송신. 거리/재고/여유는 서버가 검증한다.</summary>
     public void RequestItemPickup(int lootId, int itemHash, int count = 0)
     {
-        if (Session == null || !Session.IsConnected) return;
+        if (Session == null || !Session.IsConnected || IsAwaitingDebugTeleport) return;
+        LocalPlayer?.GetComponent<LocalPlayerInputSender>()?.SendNow();
         Session.SendItemPickup(lootId, itemHash, count);
+    }
+
+    public void RequestEquipItem(int itemHash, int slot = 0)
+    {
+        if(ABClient.Active!=null && ABClient.Active.Supported){ABClient.Active.Request(1,itemHash);return;}
+        if (Session == null || !Session.IsConnected) return;
+        Session.SendEquipItem(itemHash, slot);
     }
 
     /// <summary>탈출 요청 송신. 실제 성립 여부는 서버가 판정해 EXTRACTION_RESULT로 통보.</summary>
@@ -84,9 +131,43 @@ public class NetworkBootstrap : MonoBehaviour
     private SessionAssignData pendingAssign;
     private bool firstSelfMoveApplied = false;     // 본인 시작 위치 한 번만 적용
     private bool pendingSelfTeleport = false;      // [치트] 서버 이동 통보 대기 중
+    private RoomType pendingTeleportRoom;
+    private float teleportExpiresAt;
+    public bool IsAwaitingDebugTeleport => pendingSelfTeleport && Time.unscaledTime < teleportExpiresAt;
+    private void BeginDebugTeleport(RoomType destination)
+    {
+        LocalPlayer?.GetComponent<LocalPlayerInputSender>()?.ResetPrediction();
+        pendingTeleportRoom = destination;
+        pendingSelfTeleport = true;
+        teleportExpiresAt = Time.unscaledTime + 4f;
+    }
+    private float nextClockSync;
+    private WeaponSwingTrail[] localSwingTrails;
 
     private void Awake()
     {
+        // A distribution can select its lobby host without rebuilding the player.
+        if (!Application.isEditor)
+        {
+            string config = System.IO.Path.Combine(System.IO.Path.GetDirectoryName(Application.dataPath), "server.txt");
+            try
+            {
+                if (System.IO.File.Exists(config))
+                {
+                    string host = System.IO.File.ReadAllText(config).Trim();
+                    if (System.Uri.CheckHostName(host) != System.UriHostNameType.Unknown) lobbyServerIP = host;
+                    else Debug.LogWarning("server.txt contains an invalid server address; using the scene default.");
+                }
+            }
+            catch (System.Exception e) { Debug.LogWarning("Cannot read server.txt: " + e.Message); }
+        }
+        if(GetComponent<ABClient>()==null)gameObject.AddComponent<ABClient>();
+        if(GetComponent<EnvironmentClient>()==null)gameObject.AddComponent<EnvironmentClient>();
+        if(GetComponent<EconomyClient>()==null)gameObject.AddComponent<EconomyClient>();
+        if(GetComponent<SkillClient>()==null)gameObject.AddComponent<SkillClient>();
+        if(GetComponent<DamageScreenFeedback>()==null)gameObject.AddComponent<DamageScreenFeedback>();
+        if(GetComponent<StormClient>()==null)gameObject.AddComponent<StormClient>();
+        if(GetComponent<GameOptions>()==null)gameObject.AddComponent<GameOptions>();
         Identity = EnsureChild<LocalIdentity>("LocalIdentity");
         DebugUI = EnsureChild<DebugLobbyUI>("DebugLobbyUI");
         RemotePlayers = EnsureChild<RemotePlayerRegistry>("RemotePlayerRegistry");
@@ -94,23 +175,41 @@ public class NetworkBootstrap : MonoBehaviour
         RemoteProjectiles = EnsureChild<RemoteProjectileRegistry>("RemoteProjectileRegistry");
         Inventory = EnsureChild<ServerInventoryBridge>("ServerInventoryBridge");
         RemoteLoot = EnsureChild<RemoteLootRegistry>("RemoteLootRegistry");
+
+        // 로비/인게임 공용 채팅. 씬 작업 없이 자체적으로 캔버스를 만든다.
+        Chat = EnsureChild<ChatUI>("ChatUI");
         RemoteLoot.Initialize(this);
+        Chat.Initialize(this);
 
         // [테스트 전용] F9 즉시 탈출. 배포 시 이 두 줄과 DebugCheatKeys.cs 삭제.
         Cheats = EnsureChild<DebugCheatKeys>("DebugCheatKeys");
         Cheats.Initialize(this);
 
+        EnsureChild<PlayerStamina>("PlayerStamina");   // 달리기/공격 스태미나
+
         Identity.SetPlayerName(playerName);
+        if (combatVfxCatalog == null) combatVfxCatalog = CombatVfxCatalog.Load();
+        if (combatVfxCatalog != null)
+        {
+            if (bossPrefab == null) bossPrefab = combatVfxCatalog.BossPrefab;
+            if (projectilePrefab == null) projectilePrefab = combatVfxCatalog.ProjectilePrefab;
+            RemoteLoot.LootPrefab = combatVfxCatalog.LootPrefab;
+        }
         RemotePlayers.RemotePlayerPrefab = remotePlayerPrefab;
         RemoteMonsters.MonsterPrefab = monsterPrefab;
+        RemoteMonsters.BossPrefab = bossPrefab;
+        RemoteMonsters.Initialize(this, dungeonGeneratorObject != null ? dungeonGeneratorObject.GetComponent<DungeonGenerator_ChunkMesh>() : null);
         RemoteProjectiles.ProjectilePrefab = projectilePrefab;
         RemoteProjectiles.LocalIdentity = Identity;
 
         Lobby = new LobbyClient();
         Session = new SessionClient();
+        Session.OnDisconnected += RemoteLoot.ClearSessionLoot;
+        Session.OnDisconnected += RemotePlayers.ClearSession;
 
         Lobby.OnPacketReceived = OnLobbyPacket;
         Session.OnPacketReceived = OnSessionPacket;
+        if(GetComponent<GameplayCursorController>()==null)gameObject.AddComponent<GameplayCursorController>();
     }
 
     private void Start()
@@ -119,7 +218,16 @@ public class NetworkBootstrap : MonoBehaviour
     }
 
     // 타이틀 화면의 "시작" 버튼이 호출. 연결 + 로그인.
-    public bool BeginLogin(string nickname)
+    /// <summary>로그인 없이 로비 소켓만 연결. 회원가입/비밀번호 찾기용.</summary>
+    public bool ConnectLobbyOnly()
+    {
+        if (Lobby.IsConnected) return true;
+        if (!Lobby.Connect(lobbyServerIP, lobbyServerPort)) return false;
+        Identity.IsConnectedToLobby = true;
+        return true;
+    }
+
+    public bool BeginLogin(string nickname, string password, int reconnectClientId = 0)
     {
         if (!string.IsNullOrWhiteSpace(nickname))
         {
@@ -131,14 +239,20 @@ public class NetworkBootstrap : MonoBehaviour
             if (!Lobby.Connect(lobbyServerIP, lobbyServerPort)) return false;
             Identity.IsConnectedToLobby = true;
         }
-        Lobby.SendLogin(playerName);
+        Lobby.SendLogin(playerName, password, reconnectClientId);
         return true;
     }
 
     private void Update()
     {
+        if (pendingSelfTeleport && !IsAwaitingDebugTeleport) pendingSelfTeleport = false;
         Lobby?.Poll();
         Session?.Poll();
+        if (Session != null && Session.IsConnected && Time.unscaledTime >= nextClockSync)
+        {
+            nextClockSync = Time.unscaledTime + 5f;
+            Session.SendTimeSync();
+        }
 
         if (sessionConnectScheduled)
         {
@@ -147,8 +261,14 @@ public class NetworkBootstrap : MonoBehaviour
         }
     }
 
+    private void OnApplicationQuit()
+    {
+        if (Session != null && Session.IsConnected) GetComponent<ABClient>()?.RequestAbandon();
+    }
+
     private void OnDestroy()
     {
+        NetworkRuntime.IsOnline = false;
         Lobby?.Disconnect();
         Session?.Disconnect();
     }
@@ -160,6 +280,12 @@ public class NetworkBootstrap : MonoBehaviour
         LobbyPacket?.Invoke(type, body);
         switch (type)
         {
+            case PacketType.CHAT_MESSAGE:
+                {
+                    var m = PacketIO.BytesToStruct<ChatMessageData>(body, 0);
+                    ChatMessageReceived?.Invoke(m);
+                    break;
+                }
             case PacketType.LOGIN_RESULT:
                 {
                     var r = PacketIO.BytesToStruct<LoginResult>(body, 0);
@@ -170,7 +296,7 @@ public class NetworkBootstrap : MonoBehaviour
                     }
                     else
                     {
-                        Debug.LogError($"[Lobby] 로그인 실패: {r.failReason}");
+                        Debug.LogError($"[Lobby] 로그인 실패: {NameCodec.Decode(r.failReason)}");
                     }
                     break;
                 }
@@ -200,6 +326,11 @@ public class NetworkBootstrap : MonoBehaviour
 
     private void DoSessionConnect()
     {
+        NetworkRuntime.IsOnline = true;
+        ServerClock.Reset();
+        HasServerEquipment = false;
+        pendingSelfTeleport = false;
+        firstSelfMoveApplied = false;
         Lobby.Disconnect();
         Identity.IsConnectedToLobby = false;
 
@@ -216,9 +347,12 @@ public class NetworkBootstrap : MonoBehaviour
             pendingAssign.sessionId,
             Identity.LocalClientId))
         {
+            SessionGameStarted = false;         // 시작 신호를 기다린다
             Identity.IsConnectedToSession = true;
             AttachLocalPlayerSenders();
+            Session.SendTimeSync();
         }
+        else NetworkRuntime.IsOnline = false;
     }
 
     /// <summary>
@@ -248,10 +382,13 @@ public class NetworkBootstrap : MonoBehaviour
             return;
         }
 
+        RemoteMonsters.Initialize(this, target.GetComponent<DungeonGenerator_ChunkMesh>());
+
         // ─── MonsterSpawner 비활성화 (서버가 몬스터 처리) ───
         var spawner = target.GetComponent("MonsterSpawner") as MonoBehaviour;
         if (spawner != null)
         {
+            (spawner as MonsterSpawner)?.ClearSpawnedMonsters();
             spawner.enabled = false;
             Debug.Log("[Bootstrap] MonsterSpawner 비활성화됨");
         }
@@ -341,19 +478,124 @@ public class NetworkBootstrap : MonoBehaviour
         var attackSender = LocalPlayer.GetComponent<LocalPlayerAttackSender>();
         if (attackSender == null) attackSender = LocalPlayer.AddComponent<LocalPlayerAttackSender>();
         attackSender.Initialize(this);
+        localSwingTrails = LocalPlayer.GetComponentsInChildren<WeaponSwingTrail>(true);
 
         // 서버 권위 인벤토리 연결. 이후 로컬 인벤토리는 표시용 사본이 된다.
         var playerInv = LocalPlayer.GetComponent<PlayerInventory>();
         if (playerInv == null) playerInv = LocalPlayer.GetComponentInChildren<PlayerInventory>();
         if (Inventory != null) Inventory.Initialize(this, playerInv);
+
+        RebindPlayerUI(playerInv);
+    }
+
+    // ------------------------------------------------------------------
+    //  씬에 미리 배치된 UI들은 '씬에 있던 플레이어'를 참조하도록 저장돼 있다.
+    //  실제로 조작하는 캐릭터는 네트워크로 새로 스폰한 LocalPlayer이므로,
+    //  HP바 / 인벤토리 / 장비창을 새 캐릭터로 다시 연결해야 한다.
+    //  이 처리가 없으면 HP가 안 움직이고 장비창이 빈 채로 뜬다.
+    // ------------------------------------------------------------------
+    private void RebindPlayerUI(PlayerInventory playerInv)
+    {
+        if (LocalPlayer == null) return;
+
+        var equip = LocalPlayer.GetComponent<PlayerEquipment>();
+        if (equip == null) equip = LocalPlayer.GetComponentInChildren<PlayerEquipment>();
+
+        var hud = FindFirstObjectByType<PlayerHudUI>(FindObjectsInactive.Include);
+        var state = LocalPlayer.GetComponent<Player_State>();
+        if (hud != null && state != null) hud.SetPlayer(state);
+
+        var invUI = FindFirstObjectByType<InventoryUI>(FindObjectsInactive.Include);
+        if (invUI != null) invUI.RebindOwner(playerInv, equip);
+
+        var equipUI = FindFirstObjectByType<EquipmentUI>(FindObjectsInactive.Include);
+        if (equipUI != null) equipUI.RebindOwner(equip);
+
+        // 인벤토리 토글(i)을 새 캐릭터의 입력으로 다시 연결.
+        var uiCtrl = FindFirstObjectByType<GameUIController>(FindObjectsInactive.Include);
+        if (uiCtrl != null) uiCtrl.RebindPlayerInput();
+
+        // 진행 시간은 SESSION_START_GAME(전원 입장) 때 0부터 시작한다. 여기서는 켜지 않는다.
+
+        Debug.Log($"[Bootstrap] 플레이어 UI 재연결: inv={playerInv != null} equip={equip != null} hp={state != null}");
     }
 
     // ── 세션 패킷 처리 ───────────────────────────────────────────────
 
     private void OnSessionPacket(PacketType type, byte[] body)
     {
+        if(type==PacketType.MUMMY_BREATH_STATE){if(body?.Length==40)RemoteMonsters?.OnMummyBreath(PacketIO.BytesToStruct<MummyBreathState>(body,0));return;}
+        if((int)type==LocalPlayerInputSender.PositionSyncPacket){LocalPlayer?.GetComponent<LocalPlayerInputSender>()?.ReceivePosition(body);return;}
+        if((int)type==SkillWire.State || (int)type==SkillWire.Event){GetComponent<SkillClient>()?.Receive((int)type,body);return;}
+        if((int)type==PlayerPresentation.Packet){
+            if(body==null || body.Length!=36)return;
+            var visual=PacketIO.BytesToStruct<PlayerPresentation>(body,0);
+            if(visual.version!=1 || !float.IsFinite(visual.remaining) || !float.IsFinite(visual.duration)
+                || visual.remaining<0 || visual.duration<0 || visual.duration>2)return;
+            if(visual.entityId==Identity.LocalClientId && LocalPlayer!=null){
+                var label=LocalPlayer.GetComponent<PlayerNameplate>() ?? LocalPlayer.AddComponent<PlayerNameplate>();
+                label.SetName(Identity.PlayerName); label.SetTeam(visual.team);
+                PlayerNameplate.LocalTeam=visual.team;
+            }else RemotePlayers.OnPresentation(visual);
+            return;
+        }
+        if((int)type==StormClient.Packet){GetComponent<StormClient>()?.Receive(body);return;}
+        if((int)type==StormClient.DamagePacket){
+            if(body==null||body.Length!=12)return;
+            var hit=PacketIO.BytesToStruct<StormDamage>(body,0);
+            if(hit.version!=1||hit.hp<0)return;
+            if(hit.victimId==Identity.LocalClientId)LocalPlayer?.GetComponent<Player_State>()?.NetworkApplyHp(hit.hp,false);
+            else RemotePlayers.OnHpChanged(hit.victimId,hit.hp,false);
+            return;
+        }
+        if((int)type==EnvironmentClient.Packet){GetComponent<EnvironmentClient>()?.Receive(body);return;}
+        if((int)type==ABWire.Actor){GetComponent<ABClient>()?.ReceiveActor(body);return;}
+        if((int)type==ABWire.State){GetComponent<ABClient>()?.Receive(body);return;}
         switch (type)
         {
+            case PacketType.TIME_SYNC_RESULT:
+                var clock = PacketIO.BytesToStruct<TimeSyncResult>(body, 0);
+                ServerClock.Synchronize(clock.clientTimeMs, clock.serverTimeMs);
+                break;
+            case PacketType.EQUIP_ITEM_RESULT:
+                EquipResultReceived?.Invoke(PacketIO.BytesToStruct<EquipItemResult>(body, 0));
+                break;
+            case PacketType.EQUIPMENT_SYNC:
+                var equipment = PacketIO.BytesToStruct<EquipmentSyncData>(body, 0);
+                if (equipment.clientId == Identity.LocalClientId)
+                {
+                    HasServerEquipment = true;
+                    ServerWeaponKind = equipment.weaponKind;
+                }
+                else RemotePlayers.OnEquipmentSync(equipment);
+                EquipmentSyncReceived?.Invoke(equipment);
+                break;
+            case PacketType.EXTRACTION_LOOT_RESULT:
+                ExtractionLootResultReceived?.Invoke(PacketIO.BytesToStruct<ExtractionLootResultData>(body, 0));
+                break;
+            case PacketType.BOSS_STATE:
+                if(body.Length==32){var extended=new byte[48];System.Array.Copy(body,extended,32);body=extended;}
+                if(body.Length<48)break;
+                var bossState = PacketIO.BytesToStruct<BossStateData>(body, 0);
+                ServerClock.Observe(bossState.serverTimeMs);
+                RemoteMonsters.OnBossState(bossState);
+                break;
+            case PacketType.KNIGHT_HEAVY_TELEGRAPH:
+                if(body.Length==76)RemoteMonsters.OnKnightTelegraph(PacketIO.BytesToStruct<BossTelegraphData>(body,0));
+                break;
+            case PacketType.KNIGHT_HEAVY_RESOLVE:
+                if(body.Length==40)RemoteMonsters.OnKnightResolve(PacketIO.BytesToStruct<BossResolveData>(body,0));
+                break;
+            case PacketType.BOSS_TELEGRAPH:
+                var telegraph = PacketIO.BytesToStruct<BossTelegraphData>(body, 0);
+                ServerClock.Observe(telegraph.serverTimeMs);
+                RemoteMonsters.OnBossTelegraph(telegraph);
+                break;
+            case PacketType.BOSS_RESOLVE:
+                var resolve = PacketIO.BytesToStruct<BossResolveData>(body, 0);
+                ServerClock.Observe(resolve.serverTimeMs);
+                RemoteMonsters.OnBossResolve(resolve);
+                break;
             case PacketType.PLAYER_ENTER_VIEW:
                 {
                     var p = PacketIO.BytesToStruct<PlayerEnterView>(body, 0);
@@ -374,11 +616,13 @@ public class NetworkBootstrap : MonoBehaviour
                     {
                         // ── 보완2: 본인 첫 PLAYER_MOVE → 시작 위치 적용 ──
                         // [치트] 서버가 옮긴 경우: 시작 위치와 무관하게 다시 스냅
-                        if (pendingSelfTeleport && firstSelfMoveApplied && LocalPlayer != null)
+                        if (IsAwaitingDebugTeleport && firstSelfMoveApplied && LocalPlayer != null
+                            && IsExpectedTeleportPosition(new Vector3(p.posX, p.posY, p.posZ)))
                         {
                             pendingSelfTeleport = false;
                             ApplySelfPosition(p);
-                            Debug.Log($"<color=yellow>[치트] 탈출 방 근처로 이동: ({p.posX:F1}, {p.posY:F1}, {p.posZ:F1})</color>");
+                            Cheats?.NotifyServerTeleportApplied();
+                            Debug.Log($"[DebugKeys] 서버 이동 위치 적용: ({p.posX:F1}, {p.posY:F1}, {p.posZ:F1})");
                             break;
                         }
 
@@ -440,15 +684,21 @@ public class NetworkBootstrap : MonoBehaviour
                 {
                     var d = PacketIO.BytesToStruct<MonsterDied>(body, 0);
                     RemoteMonsters.OnDied(d.monsterId);
+                    if (d.killerId == Identity.LocalClientId && DungeonExitManager.Instance != null)
+                        DungeonExitManager.Instance.RegisterNetworkMonsterKill();
                     break;
                 }
             case PacketType.PLAYER_DIED:
                 {
                     var d = PacketIO.BytesToStruct<PlayerDied>(body, 0);
                     Debug.Log($"[Session] 사망: victim={d.victimId} killer={d.killerId}");
+                    if (d.killerId == Identity.LocalClientId && d.victimId != Identity.LocalClientId
+                        && DungeonExitManager.Instance != null)
+                        DungeonExitManager.Instance.RegisterNetworkPlayerKill();
                     // 본인 사망 시 처리(추후: 사망 UI, 리스폰)
                     if (d.victimId == Identity.LocalClientId)
                     {
+                        LocalPlayer?.GetComponent<Player_State>()?.NetworkDie();
                         Debug.Log("<color=red>[Session] 본인 사망!</color>");
                     }
                     else
@@ -467,7 +717,8 @@ public class NetworkBootstrap : MonoBehaviour
                 {
                     // 다른 플레이어의 공격 액션. 본인은 본 패킷 받지 않음 (서버가 exceptClientId=attackerId).
                     var pab = PacketIO.BytesToStruct<PlayerAttackBroadcast>(body, 0);
-                    RemotePlayers.OnAttackBroadcast(pab);
+                    // Local animation events own the cosmetic ribbon; echoes must not restart it.
+                    if (pab.attackerId != Identity.LocalClientId) RemotePlayers.OnAttackBroadcast(pab);
                     break;
                 }
             case PacketType.COMBAT_EVENT:
@@ -487,7 +738,7 @@ public class NetworkBootstrap : MonoBehaviour
                     else if (ce.targetId < 0)
                     {
                         // 몬스터 HP 갱신
-                        RemoteMonsters.OnHpChanged(-ce.targetId, ce.targetHpAfter);
+                        RemoteMonsters.OnHpChanged(-ce.targetId, ce.targetHpAfter, ce.damage, ce.weaponKind);
                     }
                     break;
                 }
@@ -512,6 +763,19 @@ public class NetworkBootstrap : MonoBehaviour
                     RemoteProjectiles.OnDespawn(dp);
                     break;
                 }
+            case PacketType.SESSION_START_GAME:
+                {
+                    // 파티 전원이 던전에 들어왔다. 여기서부터 같이 시작.
+                    if (!SessionGameStarted)
+                    {
+                        SessionGameStarted = true;
+                        LoadingOverlay.Hide();
+                        if (DungeonExitManager.Instance != null)
+                            DungeonExitManager.Instance.ResetTimer();   // 진행 시간 0부터
+                        Debug.Log("<color=lime>[Session] 전원 입장 완료 - 게임 시작</color>");
+                    }
+                    break;
+                }
             case PacketType.EXTRACTION_RESULT:
                 {
                     // 서버 탈출 판정 결과. 성공해야만 실제 탈출 처리.
@@ -520,7 +784,7 @@ public class NetworkBootstrap : MonoBehaviour
                     if (r.success == 1)
                         Debug.Log($"<color=lime>[Extract] 탈출 성공 (체류 {r.heldSec:F1}s, 아이템 {r.itemCount})</color>");
                     else
-                        Debug.LogWarning($"[Extract] 탈출 거부: {(ExtractionFailReason)r.failReason} (체류 {r.heldSec:F1}s)");
+                        Debug.LogWarning(r.failReason==99?"[Extract] 보관함 저장 실패 · 탈출하지 않았습니다. 잠시 후 다시 시도하세요.":$"[Extract] 탈출 거부: {(ExtractionFailReason)r.failReason} (체류 {r.heldSec:F1}s)");
                     break;
                 }
             case PacketType.PLAYER_EXTRACTED:
@@ -557,6 +821,12 @@ public class NetworkBootstrap : MonoBehaviour
                     LootRemovedReceived?.Invoke(rm);
                     break;
                 }
+            case PacketType.CHAT_MESSAGE:
+                {
+                    var m = PacketIO.BytesToStruct<ChatMessageData>(body, 0);
+                    ChatMessageReceived?.Invoke(m);
+                    break;
+                }
             case PacketType.SESSION_ENDED:
                 {
                     var s = PacketIO.BytesToStruct<SessionEnded>(body, 0);
@@ -569,9 +839,14 @@ public class NetworkBootstrap : MonoBehaviour
 
     // 본인 캐릭터를 서버 좌표로 스냅.
     // CharacterController가 켜져 있으면 transform 직접 대입이 무시되므로 잠깐 끈다.
+    public void CompleteAuthoritativeTeleport(){pendingSelfTeleport=false;Cheats?.NotifyServerTeleportApplied();}
     private void ApplySelfPosition(PlayerMove p)
     {
         if (LocalPlayer == null) return;
+        LocalPlayer.GetComponent<PlayerDefenseController>()?.CancelDefense();
+        LocalPlayer.GetComponent<Player_Attack>()?.CancelCurrentAttack();
+        LocalPlayer.GetComponent<Player_LockOnSystem>()?.ClearLockOn();
+        LocalPlayer.GetComponent<Player_Movement>()?.ResetVerticalMotion();
 
         var cc = LocalPlayer.GetComponent<CharacterController>();
         bool wasEnabled = cc != null && cc.enabled;
@@ -580,6 +855,15 @@ public class NetworkBootstrap : MonoBehaviour
         LocalPlayer.transform.position = new Vector3(p.posX, p.posY, p.posZ);
 
         if (cc != null) cc.enabled = wasEnabled;
+    }
+
+    private bool IsExpectedTeleportPosition(Vector3 position)
+    {
+        var generator = dungeonGeneratorObject != null ? dungeonGeneratorObject.GetComponent<DungeonGenerator_ChunkMesh>() : null;
+        if (generator == null) generator = FindFirstObjectByType<DungeonGenerator_ChunkMesh>();
+        if(!float.IsFinite(position.x) || !float.IsFinite(position.y) || !float.IsFinite(position.z)) return false;
+        return DebugCheatKeys.MatchesRoom(generator, pendingTeleportRoom, position)
+            || (pendingTeleportRoom == RoomType.Boss && RemoteMonsters != null && RemoteMonsters.IsNearServerBossPosition(position));
     }
 
     private void ApplyHpToLocalPlayer(int newHp)

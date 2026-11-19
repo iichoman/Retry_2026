@@ -5,19 +5,36 @@ using UnityEngine;
 // ============================================================================
 //  RemotePlayerRegistry
 //
-//  ´Ù¸¥ ÇÃ·¹ÀÌ¾îµé (º»ÀÎ Á¦¿Ü)À» ¼­¹ö¿¡¼­ ¹ŞÀº µ¥ÀÌÅÍ·Î Ç¥½Ã.
-//   - PLAYER_ENTER_VIEW ¡æ RemotePlayerPrefab instantiate
-//   - PLAYER_MOVE ¡æ À§Ä¡/È¸Àü/¾Ö´Ï °»½Å (Lerp º¸°£)
-//   - PLAYER_LEAVE_VIEW ¡æ destroy
+//  ë‹¤ë¥¸ í”Œë ˆì´ì–´ë“¤ (ë³¸ì¸ ì œì™¸)ì„ ì„œë²„ì—ì„œ ë°›ì€ ë°ì´í„°ë¡œ í‘œì‹œ.
+//   - PLAYER_ENTER_VIEW â†’ RemotePlayerPrefab instantiate
+//   - PLAYER_MOVE â†’ ìœ„ì¹˜/íšŒì „/ì• ë‹ˆ ê°±ì‹  (Lerp ë³´ê°„)
+//   - PLAYER_LEAVE_VIEW â†’ destroy
 //
-//  Áß¿ä: RemotePlayerPrefab¿£ Player_Movement, Defalult_Input µî ÀÚÃ¼ µ¿ÀÛ
-//        ÄÄÆ÷³ÍÆ®°¡ ÀÖÀ¸¸é ºñÈ°¼ºÈ­. ½Ã°¢ ÄÄÆ÷³ÍÆ®(Animator, Renderer)¸¸ »ì¸².
+//  ì¤‘ìš”: RemotePlayerPrefabì—” Player_Movement, Defalult_Input ë“± ìì²´ ë™ì‘
+//        ì»´í¬ë„ŒíŠ¸ê°€ ìˆìœ¼ë©´ ë¹„í™œì„±í™”. ì‹œê° ì»´í¬ë„ŒíŠ¸(Animator, Renderer)ë§Œ ì‚´ë¦¼.
 // ============================================================================
 public class RemotePlayerRegistry : MonoBehaviour
 {
+    public GameObject GetActor(int id) => entries.TryGetValue(id, out var entry) ? entry.go : null;
+
     public GameObject RemotePlayerPrefab;
 
     private readonly Dictionary<int, RemotePlayerEntry> entries = new();
+    private readonly Dictionary<int, PlayerPresentation> presentations = new();
+    public void ClearSession()
+    {
+        foreach(var entry in entries.Values)if(entry.go!=null)Destroy(entry.go);
+        entries.Clear();equipmentStates.Clear();presentations.Clear();PlayerNameplate.LocalTeam=-1;
+    }
+    public void OnPresentation(PlayerPresentation data)
+    {
+        presentations[data.entityId]=data;
+        if(!entries.TryGetValue(data.entityId,out var e) || e.go==null)return;
+        var label=e.go.GetComponent<PlayerNameplate>() ?? e.go.AddComponent<PlayerNameplate>();
+        label.SetTeam(data.team);
+        if(!e.dead)e.go.GetComponent<PlayerDefenseController>()?.ApplyRemoteDefense(data);
+    }
+    private readonly Dictionary<int, EquipmentSyncData> equipmentStates = new();
 
     private class RemotePlayerEntry
     {
@@ -25,11 +42,13 @@ public class RemotePlayerRegistry : MonoBehaviour
         public Animator animator;
         public Component playerState;
         public FieldInfo hpBackingField;
+        public WeaponSwingTrail[] swingTrails;
 
         public Vector3 targetPos;
         public float targetYaw;
         public float speed;
         public int animState;
+        public bool dead;
     }
 
     private void Update()
@@ -38,13 +57,13 @@ public class RemotePlayerRegistry : MonoBehaviour
         foreach (var kv in entries)
         {
             var e = kv.Value;
-            if (e.go == null) continue;
+            if (e.go == null || e.dead) continue;
             e.go.transform.position = Vector3.Lerp(e.go.transform.position, e.targetPos, lerpRate);
             float curYaw = e.go.transform.eulerAngles.y;
             float newYaw = Mathf.LerpAngle(curYaw, e.targetYaw, lerpRate);
             e.go.transform.eulerAngles = new Vector3(0f, newYaw, 0f);
 
-            // ¾Ö´Ï¿ë speed ÆÄ¶ó¹ÌÅÍ (Player_AnimationÀÌ "Mspeed" °°Àº °Å ÀÖ´Ù¸é)
+            // ì• ë‹ˆìš© speed íŒŒë¼ë¯¸í„° (Player_Animationì´ "Mspeed" ê°™ì€ ê±° ìˆë‹¤ë©´)
             if (e.animator != null)
             {
                 ApplyAnimSpeed(e.animator, e.speed);
@@ -63,7 +82,7 @@ public class RemotePlayerRegistry : MonoBehaviour
         }
         if (RemotePlayerPrefab == null)
         {
-            Debug.LogError("[RemotePlayers] RemotePlayerPrefab ¹Ì¼³Á¤!");
+            Debug.LogError("[RemotePlayers] RemotePlayerPrefab ë¯¸ì„¤ì •!");
             return;
         }
 
@@ -78,6 +97,7 @@ public class RemotePlayerRegistry : MonoBehaviour
         {
             go = go,
             animator = go.GetComponentInChildren<Animator>(),
+            swingTrails = go.GetComponentsInChildren<WeaponSwingTrail>(true),
             targetPos = spawnPos,
             targetYaw = p.rotY,
         };
@@ -93,6 +113,10 @@ public class RemotePlayerRegistry : MonoBehaviour
         }
 
         entries[p.clientId] = entry;
+        var nameplate=go.AddComponent<PlayerNameplate>(); nameplate.SetName(p.playerName);
+        if(presentations.TryGetValue(p.clientId,out var visual)) OnPresentation(visual);
+        if(p.hp<=0) OnPlayerDied(p.clientId);
+        if (equipmentStates.TryGetValue(p.clientId, out var equipment)) OnEquipmentSync(equipment);
         Debug.Log($"[RemotePlayers] ENTER cid={p.clientId} name={p.playerName} hp={p.hp}");
     }
 
@@ -107,31 +131,43 @@ public class RemotePlayerRegistry : MonoBehaviour
     public void OnMove(PlayerMove p)
     {
         if (!entries.TryGetValue(p.clientId, out var e)) return;
+        if(e.dead) return;
         e.targetPos = new Vector3(p.posX, p.posY, p.posZ);
         e.targetYaw = p.rotY;
         e.speed = p.speed;
         e.animState = p.animState;
     }
 
-    /// <summary>´Ù¸¥ ÇÃ·¹ÀÌ¾îÀÇ °ø°İ ¾×¼Ç ¾Ë¸². Animator¿¡ attack trigger ¹ßµ¿.</summary>
+    /// <summary>ë‹¤ë¥¸ í”Œë ˆì´ì–´ì˜ ê³µê²© ì•¡ì…˜ ì•Œë¦¼. Animatorì— attack trigger ë°œë™.</summary>
+    // Match the shared controller's 20%-53% swing window; remote actors have no local combo driver.
+    private static float SwordPlaybackSeconds(int combo) => combo switch { 1 => .75f, 2 => .8f, 3 => .9f, _ => 1f };
     public void OnAttackBroadcast(PlayerAttackBroadcast pab)
     {
         if (!entries.TryGetValue(pab.attackerId, out var e)) return;
+        if(e.dead) return;
+        float swingSpeed=pab.weaponKind==(int)WeaponKind.BIG_SWORD&&e.animator!=null?Mathf.Clamp(e.animator.speed,.1f,2f):1f;
+        if ((pab.weaponKind == (int)WeaponKind.SWORD || pab.weaponKind == (int)WeaponKind.BIG_SWORD) && e.swingTrails != null)
+            foreach (var trail in e.swingTrails)
+                if (trail != null && trail.gameObject.activeInHierarchy) trail.PlayServerSwing(pab.weaponKind == (int)WeaponKind.BIG_SWORD ? GreatswordWeapon.SwingDurationFor(pab.comboIndex)/swingSpeed : SwordPlaybackSeconds(pab.comboIndex)*.33f,
+                    pab.weaponKind == (int)WeaponKind.BIG_SWORD ? GreatswordWeapon.SwingStartFor(pab.comboIndex)/swingSpeed : SwordPlaybackSeconds(pab.comboIndex)*.20f);
         if (e.animator == null) return;
 
-        // ¹«±â Á¾·ù¿Í ÄŞº¸ ÀÎµ¦½º·Î attack state °áÁ¤.
-        // Å¬¶ó Animator´Â sword_attack_1~4 ¡æ Blend Tree ±¸Á¶.
-        // ÀÏ´Ü ÄŞº¸ ÀÎµ¦½º·Î sword_attack_{combo} state·Î CrossFade ½Ãµµ.
-        int combo = Mathf.Clamp(pab.comboIndex, 1, 4);
-        string stateName = $"sword_attack_{combo}";
+        // ë¬´ê¸° ì¢…ë¥˜ì™€ ì½¤ë³´ ì¸ë±ìŠ¤ë¡œ attack state ê²°ì •.
+        // í´ë¼ AnimatorëŠ” sword_attack_1~4 â†’ Blend Tree êµ¬ì¡°.
+        // ì¼ë‹¨ ì½¤ë³´ ì¸ë±ìŠ¤ë¡œ sword_attack_{combo} stateë¡œ CrossFade ì‹œë„.
+        int combo = Mathf.Clamp(pab.comboIndex,1,pab.weaponKind==(int)WeaponKind.BIG_SWORD?3:4);
+        string prefix = pab.weaponKind == (int)WeaponKind.BIG_SWORD ? "greatsword" : pab.weaponKind == (int)WeaponKind.GUN ? "gun" : "sword";
+        string stateName = $"Base Layer.test.{prefix}_attack_{combo}";
         int stateHash = Animator.StringToHash(stateName);
+        if(!e.animator.HasState(0,stateHash))
+            stateHash=Animator.StringToHash($"{prefix}_attack_{combo}");
         if (e.animator.HasState(0, stateHash))
         {
             e.animator.CrossFadeInFixedTime(stateHash, 0.05f, 0, 0f);
         }
         else
         {
-            // Æú¹é: "Attack" trigger ½Ãµµ
+            // í´ë°±: "Attack" trigger ì‹œë„
             var ps = e.animator.parameters;
             for (int i = 0; i < ps.Length; i++)
             {
@@ -144,25 +180,41 @@ public class RemotePlayerRegistry : MonoBehaviour
         }
     }
 
-    /// <summary>´Ù¸¥ ÇÃ·¹ÀÌ¾îÀÇ HP °»½Å (COMBAT_EVENT ¹Ş¾ÒÀ» ¶§).</summary>
-    public void OnHpChanged(int clientId, int hp)
+    /// <summary>ë‹¤ë¥¸ í”Œë ˆì´ì–´ì˜ HP ê°±ì‹  (COMBAT_EVENT ë°›ì•˜ì„ ë•Œ).</summary>
+    public void OnHpChanged(int clientId, int hp, bool hitReaction = true)
     {
         if (!entries.TryGetValue(clientId, out var e)) return;
+        if(e.dead) return;
+        bool damaged=hitReaction && e.playerState is Player_State state && hp<state.CurrentHp;
         if (e.hpBackingField != null && e.playerState != null)
         {
             e.hpBackingField.SetValue(e.playerState, hp);
         }
+        if(damaged)e.go.GetComponent<PlayerDefenseController>()?.CancelDefense();
+        if(hp<=0) OnPlayerDied(clientId);
+        else if(damaged && e.animator!=null && e.animator.HasState(0,Animator.StringToHash("Hit")))
+            e.animator.CrossFadeInFixedTime("Hit",.04f,0,0);
     }
 
-    /// <summary>´Ù¸¥ ÇÃ·¹ÀÌ¾î »ç¸Á. ÃßÈÄ »ç¸Á ¾Ö´Ï/ÀÌÆåÆ®.</summary>
+    /// <summary>ì„œë²„ ì‚¬ë§ í†µë³´ë¥¼ í•œ ë²ˆë§Œ ì¬ìƒí•˜ê³  ì´í›„ ì´ë™/ê³µê²© í‘œì‹œë¥¼ ì¤‘ë‹¨í•œë‹¤.</summary>
     public void OnPlayerDied(int clientId)
     {
         if (!entries.TryGetValue(clientId, out var e)) return;
-        // ÀÏ´Ü ´Ü¼ø destroy. LEAVE_VIEW°¡ µµÂøÇÏ¸é ±×ÂÊÀÌ Ã³¸®ÇØµµ OKÀÌÁö¸¸
-        // Áï½Ã ½Ã°¢Àû ÇÇµå¹éÀ» À§ÇØ ¿©±â¼­µµ Ã³¸®.
+        if(e.dead) return;
+        e.dead=true; e.speed=0;
+        e.go?.GetComponent<PlayerDefenseController>()?.CancelDefense();
+        (e.playerState as Player_State)?.NetworkDie();
+        e.go?.GetComponent<Player_Attack>()?.CancelCurrentAttack();
+        if(e.animator!=null && e.animator.HasState(0,Animator.StringToHash("Die")))
+        {
+            e.animator.CrossFadeInFixedTime("Die",.08f,0,0);
+            return;
+        }
+        // ì¼ë‹¨ ë‹¨ìˆœ destroy. LEAVE_VIEWê°€ ë„ì°©í•˜ë©´ ê·¸ìª½ì´ ì²˜ë¦¬í•´ë„ OKì´ì§€ë§Œ
+        // ì¦‰ì‹œ ì‹œê°ì  í”¼ë“œë°±ì„ ìœ„í•´ ì—¬ê¸°ì„œë„ ì²˜ë¦¬.
         if (e.go != null)
         {
-            // »ç¸Á ¾Ö´Ï°¡ ÀÖÀ¸¸é ¹ßµ¿, Àá½Ã ÈÄ destroy
+            // ì‚¬ë§ ì• ë‹ˆê°€ ìˆìœ¼ë©´ ë°œë™, ì ì‹œ í›„ destroy
             if (e.animator != null)
             {
                 var ps = e.animator.parameters;
@@ -175,14 +227,28 @@ public class RemotePlayerRegistry : MonoBehaviour
                     }
                 }
             }
-            // Die ¾Ö´Ï ¾øÀ¸¸é ±×³É µÒ (LEAVE_VIEW°¡ °ğ ¿Ã °Í)
+            // Die ì• ë‹ˆ ì—†ìœ¼ë©´ ê·¸ëƒ¥ ë‘  (LEAVE_VIEWê°€ ê³§ ì˜¬ ê²ƒ)
         }
+    }
+
+    public void OnEquipmentSync(EquipmentSyncData equipment)
+    {
+        equipmentStates[equipment.clientId] = equipment;
+        if (!entries.TryGetValue(equipment.clientId, out var e) || e.go == null) return;
+        var attack = e.go.GetComponent<Player_Attack>();
+        if (attack != null)
+            attack.EquipWeapon(equipment.weaponKind == (int)WeaponKind.BIG_SWORD ? GreatswordWeapon.Id : equipment.weaponKind == (int)WeaponKind.GUN ? "test_gun" : "test_sword");
     }
 
     private void DisableLocalControl(GameObject go)
     {
-        // Remote ÇÃ·¹ÀÌ¾î´Â ÀÚ±â°¡ ÀÔ·Â/ÀÌµ¿ Ã³¸® ¾È ÇÔ
+        // Remote í”Œë ˆì´ì–´ëŠ” ìê¸°ê°€ ì…ë ¥/ì´ë™ ì²˜ë¦¬ ì•ˆ í•¨
+        var defense=go.GetComponent<PlayerDefenseController>() ?? go.AddComponent<PlayerDefenseController>();
+        defense.SetRemotePresentation();
+        (go.GetComponent<PlayerDefenseAnimation>() ?? go.AddComponent<PlayerDefenseAnimation>()).enabled=true;
+        (go.GetComponent<PlayerDefensePose>() ?? go.AddComponent<PlayerDefensePose>()).enabled=true;
         DisableComponentByName(go, "Player_Movement");
+        DisableComponentByName(go, "Player_Animation");
         DisableComponentByName(go, "Defalult_Input");
         DisableComponentByName(go, "Player_Attack");
         DisableComponentByName(go, "Player_ClassicAttack");
@@ -190,12 +256,14 @@ public class RemotePlayerRegistry : MonoBehaviour
         DisableComponentByName(go, "Player_Camera_Action");
         DisableComponentByName(go, "Player_Camera_Controller");
         DisableComponentByName(go, "Player_LockOnSystem");
+        DisableComponentByName(go, "PlayerEquipment");
+        DisableComponentByName(go, "PlayerPickupInteractor");
 
-        // CharacterController´Â disable (¼­¹ö°¡ À§Ä¡ º¸³»ÁÜ)
+        // CharacterControllerëŠ” disable (ì„œë²„ê°€ ìœ„ì¹˜ ë³´ë‚´ì¤Œ)
         var cc = go.GetComponent<CharacterController>();
         if (cc != null) cc.enabled = false;
 
-        // PlayerInput (Unity Input System) ²ô±â
+        // PlayerInput (Unity Input System) ë„ê¸°
         var pi = go.GetComponent("PlayerInput") as MonoBehaviour;
         if (pi != null) pi.enabled = false;
     }
@@ -208,8 +276,8 @@ public class RemotePlayerRegistry : MonoBehaviour
 
     private static void ApplyAnimSpeed(Animator anim, float speed)
     {
-        // AnimatorÀÇ ÀÌµ¿ ¼Óµµ ÆÄ¶ó¹ÌÅÍ¸¦ ÀÚµ¿ Å½»ö.
-        // Å¬¶ó Ãø Player_AnimCtrlÀÇ ½ÇÁ¦ ÆÄ¶ó¹ÌÅÍ ÀÌ¸§Àº "speed" (¼Ò¹®ÀÚ).
+        // Animatorì˜ ì´ë™ ì†ë„ íŒŒë¼ë¯¸í„°ë¥¼ ìë™ íƒìƒ‰.
+        // í´ë¼ ì¸¡ Player_AnimCtrlì˜ ì‹¤ì œ íŒŒë¼ë¯¸í„° ì´ë¦„ì€ "speed" (ì†Œë¬¸ì).
         var ps = anim.parameters;
         for (int i = 0; i < ps.Length; i++)
         {

@@ -12,7 +12,6 @@ public class Monster_Animation : MonoBehaviour
     [SerializeField, Min(0f)] private float blendDampTime = 0.1f;
     [SerializeField, Min(0f)] private float attackTransitionDuration = 0.05f;
     [SerializeField, Min(0f)] private float hitTransitionDuration = 0.03f;
-    [SerializeField, Min(0f)] private float deathTransitionDuration = 0.05f;
     [SerializeField] private string attackStateTag = "Attack";
     [SerializeField] private string hitStateTag = "Hit";
 
@@ -22,6 +21,9 @@ public class Monster_Animation : MonoBehaviour
     private Vector3 previousPosition;
     private bool hasBlendParameter;
     private bool hasWarnedMissingBlendParameter;
+    private int deathStateHash;
+    private bool deathStarted;
+    private bool corpsePoseHeld;
 
     public bool IsAttacking => animator != null && IsInAttackState();
 
@@ -29,7 +31,7 @@ public class Monster_Animation : MonoBehaviour
     {
         if (animator == null)
         {
-            animator = GetComponent<Animator>();
+            animator = GetComponentInChildren<Animator>();
         }
 
         if (monsterAttack == null)
@@ -59,6 +61,9 @@ public class Monster_Animation : MonoBehaviour
             return;
         }
 
+        PlayPendingDeath();
+        if (monsterState != null && monsterState.IsDead) return;
+
         if (hasBlendParameter)
         {
             animator.SetFloat(blendHash, GetCurrentMoveSpeed(), blendDampTime, Time.deltaTime);
@@ -76,7 +81,6 @@ public class Monster_Animation : MonoBehaviour
         }
 
         UpdateHitState();
-        PlayPendingDeath();
         PlayPendingHit();
 
         if (monsterState != null && (monsterState.IsDead || monsterState.IsHit))
@@ -191,9 +195,38 @@ public class Monster_Animation : MonoBehaviour
             navMeshAgent.isStopped = true;
         }
 
-        animator.CrossFadeInFixedTime(stateHash, deathTransitionDuration, 0, 0f);
+        deathStateHash = stateHash;
+        deathStarted = true;
+        corpsePoseHeld = false;
+        animator.speed = 1f; // A fatal hit must play even if the monster was stunned.
+        animator.cullingMode = AnimatorCullingMode.AlwaysAnimate;
+        animator.Play(stateHash, 0, 0f);
         wasInAttackState = false;
         wasInHitState = false;
+    }
+
+    private void LateUpdate()
+    {
+        if (!deathStarted || corpsePoseHeld || animator == null) return;
+        var state = animator.GetCurrentAnimatorStateInfo(0);
+        // Also handles legacy controllers with an exit transition or a looping death clip.
+        if (state.shortNameHash != deathStateHash || state.normalizedTime >= .999f)
+            HoldCorpsePose();
+    }
+
+    public void ShowCorpse()
+    {
+        // An already-dead actor entering view should not replay its fall.
+        PlayPendingDeath();
+        if (deathStarted) HoldCorpsePose();
+    }
+
+    private void HoldCorpsePose()
+    {
+        animator.Play(deathStateHash, 0, .999f);
+        animator.Update(0f);
+        animator.speed = 0f;
+        corpsePoseHeld = true;
     }
 
     private void PlayPendingAttack()
@@ -215,6 +248,8 @@ public class Monster_Animation : MonoBehaviour
             return;
         }
 
+        var mummy=GetComponent<MummyBreathView>();
+        if(mummy!=null&&mummy.Phase>=3)stateHash=Animator.StringToHash(mummy.Phase==3?"ChargeWindup":"Charge");
         animator.CrossFadeInFixedTime(stateHash, attackTransitionDuration, 0, 0f);
         monsterAttack.NotifyAttackAnimationStarted();
         wasInAttackState = true;

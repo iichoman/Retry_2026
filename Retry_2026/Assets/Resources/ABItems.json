@@ -1,0 +1,670 @@
+{
+  "items": [
+    {
+      "id": "health_potion",
+      "label": "체력물약 1등급",
+      "effect": 0,
+      "tier": 1,
+      "value": 30,
+      "kind": 0,
+      "description": "최대 체력의 25% 즉시 회복."
+    },
+    {
+      "id": "health_potion_t2",
+      "label": "체력물약 2등급",
+      "effect": 0,
+      "tier": 2,
+      "value": 60,
+      "kind": 0,
+      "description": "최대 체력의 40% 즉시 회복."
+    },
+    {
+      "id": "health_potion_t3",
+      "label": "체력물약 3등급",
+      "effect": 0,
+      "tier": 3,
+      "value": 90,
+      "kind": 0,
+      "description": "최대 체력의 60% 즉시 회복."
+    },
+    {
+      "id": "vigor_potion_t1",
+      "label": "활력물약 1등급",
+      "effect": 1,
+      "tier": 1,
+      "value": 30,
+      "kind": 0,
+      "description": "최대 스태미나의 35% 즉시 회복."
+    },
+    {
+      "id": "vigor_potion_t2",
+      "label": "활력물약 2등급",
+      "effect": 1,
+      "tier": 2,
+      "value": 60,
+      "kind": 0,
+      "description": "최대 스태미나의 60% 즉시 회복."
+    },
+    {
+      "id": "vigor_potion_t3",
+      "label": "활력물약 3등급",
+      "effect": 1,
+      "tier": 3,
+      "value": 90,
+      "kind": 0,
+      "description": "최대 스태미나의 100% 즉시 회복."
+    },
+    {
+      "id": "cleanse_potion_t1",
+      "label": "정화물약 1등급",
+      "effect": 2,
+      "tier": 1,
+      "value": 30,
+      "kind": 0,
+      "description": "모든 상태이상을 해제하고 1초 동안 상태이상 면역."
+    },
+    {
+      "id": "cleanse_potion_t2",
+      "label": "정화물약 2등급",
+      "effect": 2,
+      "tier": 2,
+      "value": 60,
+      "kind": 0,
+      "description": "모든 상태이상을 해제하고 2초 동안 상태이상 면역."
+    },
+    {
+      "id": "cleanse_potion_t3",
+      "label": "정화물약 3등급",
+      "effect": 2,
+      "tier": 3,
+      "value": 90,
+      "kind": 0,
+      "description": "모든 상태이상을 해제하고 3초 동안 상태이상 면역."
+    },
+    {
+      "id": "sprint_potion_t1",
+      "label": "질주물약 1등급",
+      "effect": 3,
+      "tier": 1,
+      "value": 30,
+      "kind": 0,
+      "description": "4초 동안 달리기 스태미나 소모 없음. 회피·공격 비용은 유지."
+    },
+    {
+      "id": "sprint_potion_t2",
+      "label": "질주물약 2등급",
+      "effect": 3,
+      "tier": 2,
+      "value": 60,
+      "kind": 0,
+      "description": "6초 동안 달리기 스태미나 소모 없음. 회피·공격 비용은 유지."
+    },
+    {
+      "id": "sprint_potion_t3",
+      "label": "질주물약 3등급",
+      "effect": 3,
+      "tier": 3,
+      "value": 90,
+      "kind": 0,
+      "description": "8초 동안 달리기 스태미나 소모 없음. 회피·공격 비용은 유지."
+    },
+    {
+      "id": "life_amulet_t1",
+      "label": "생명의 목걸이 1등급",
+      "effect": 4,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "장착 중 최대 체력 +10. 현재 체력을 추가 회복하지 않음."
+    },
+    {
+      "id": "life_amulet_t2",
+      "label": "생명의 목걸이 2등급",
+      "effect": 4,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "장착 중 최대 체력 +15. 현재 체력을 추가 회복하지 않음."
+    },
+    {
+      "id": "life_amulet_t3",
+      "label": "생명의 목걸이 3등급",
+      "effect": 4,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "장착 중 최대 체력 +20. 현재 체력을 추가 회복하지 않음."
+    },
+    {
+      "id": "vigor_ring_t1",
+      "label": "활력의 반지 1등급",
+      "effect": 5,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "장착 중 최대 스태미나 +15."
+    },
+    {
+      "id": "vigor_ring_t2",
+      "label": "활력의 반지 2등급",
+      "effect": 5,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "장착 중 최대 스태미나 +25."
+    },
+    {
+      "id": "vigor_ring_t3",
+      "label": "활력의 반지 3등급",
+      "effect": 5,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "장착 중 최대 스태미나 +35."
+    },
+    {
+      "id": "regen_seed_t1",
+      "label": "회복의 씨앗 1등급",
+      "effect": 6,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "6초 동안 피해를 받지 않으면 초당 최대 체력의 0.5% 회복."
+    },
+    {
+      "id": "regen_seed_t2",
+      "label": "회복의 씨앗 2등급",
+      "effect": 6,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "6초 동안 피해를 받지 않으면 초당 최대 체력의 0.75% 회복."
+    },
+    {
+      "id": "regen_seed_t3",
+      "label": "회복의 씨앗 3등급",
+      "effect": 6,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "6초 동안 피해를 받지 않으면 초당 최대 체력의 1% 회복."
+    },
+    {
+      "id": "vampire_fang_t1",
+      "label": "흡혈 송곳니 1등급",
+      "effect": 7,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "직접 공격으로 준 실제 피해의 3% 회복. 소수 회복량 누적. 지속 피해 제외."
+    },
+    {
+      "id": "vampire_fang_t2",
+      "label": "흡혈 송곳니 2등급",
+      "effect": 7,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "직접 공격으로 준 실제 피해의 5% 회복. 소수 회복량 누적. 지속 피해 제외."
+    },
+    {
+      "id": "vampire_fang_t3",
+      "label": "흡혈 송곳니 3등급",
+      "effect": 7,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "직접 공격으로 준 실제 피해의 7% 회복. 소수 회복량 누적. 지속 피해 제외."
+    },
+    {
+      "id": "hunter_crest_t1",
+      "label": "사냥꾼의 문장 1등급",
+      "effect": 8,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "몬스터 처치 시 스태미나 8 회복."
+    },
+    {
+      "id": "hunter_crest_t2",
+      "label": "사냥꾼의 문장 2등급",
+      "effect": 8,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "몬스터 처치 시 스태미나 12 회복."
+    },
+    {
+      "id": "hunter_crest_t3",
+      "label": "사냥꾼의 문장 3등급",
+      "effect": 8,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "몬스터 처치 시 스태미나 16 회복."
+    },
+    {
+      "id": "duelist_knot_t1",
+      "label": "결투가의 매듭 1등급",
+      "effect": 9,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "패링 성공 후 3초 안의 다음 공격 피해 +15%."
+    },
+    {
+      "id": "duelist_knot_t2",
+      "label": "결투가의 매듭 2등급",
+      "effect": 9,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "패링 성공 후 3초 안의 다음 공격 피해 +25%."
+    },
+    {
+      "id": "duelist_knot_t3",
+      "label": "결투가의 매듭 3등급",
+      "effect": 9,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "패링 성공 후 3초 안의 다음 공격 피해 +35%."
+    },
+    {
+      "id": "ember_charm_t1",
+      "label": "잿불 부적 1등급",
+      "effect": 10,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "화염검의 초당 화상 피해 +1."
+    },
+    {
+      "id": "ember_charm_t2",
+      "label": "잿불 부적 2등급",
+      "effect": 10,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "화염검의 초당 화상 피해 +2."
+    },
+    {
+      "id": "ember_charm_t3",
+      "label": "잿불 부적 3등급",
+      "effect": 10,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "화염검의 초당 화상 피해 +3."
+    },
+    {
+      "id": "frost_crystal_t1",
+      "label": "서리 결정 1등급",
+      "effect": 11,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "냉각 상태인 대상에게 직접 공격 피해 +4%."
+    },
+    {
+      "id": "frost_crystal_t2",
+      "label": "서리 결정 2등급",
+      "effect": 11,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "냉각 상태인 대상에게 직접 공격 피해 +8%."
+    },
+    {
+      "id": "frost_crystal_t3",
+      "label": "서리 결정 3등급",
+      "effect": 11,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "냉각 상태인 대상에게 직접 공격 피해 +12%."
+    },
+    {
+      "id": "poison_thorn_t1",
+      "label": "맹독 가시 1등급",
+      "effect": 12,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "세 번째 명중 시 10초 동안 매초 2 독 피해. 중첩 대신 지속 시간 갱신."
+    },
+    {
+      "id": "poison_thorn_t2",
+      "label": "맹독 가시 2등급",
+      "effect": 12,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "세 번째 명중 시 10초 동안 매초 4 독 피해. 중첩 대신 지속 시간 갱신."
+    },
+    {
+      "id": "poison_thorn_t3",
+      "label": "맹독 가시 3등급",
+      "effect": 12,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "세 번째 명중 시 10초 동안 매초 6 독 피해. 중첩 대신 지속 시간 갱신."
+    },
+    {
+      "id": "thunder_stone_t1",
+      "label": "뇌전석 1등급",
+      "effect": 13,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "명중 시 0.3초 마비. 재사용 20초. 대상에게 마비 저항 2초 적용."
+    },
+    {
+      "id": "thunder_stone_t2",
+      "label": "뇌전석 2등급",
+      "effect": 13,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "명중 시 0.3초 마비. 재사용 16초. 대상에게 마비 저항 2초 적용."
+    },
+    {
+      "id": "thunder_stone_t3",
+      "label": "뇌전석 3등급",
+      "effect": 13,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "명중 시 0.3초 마비. 재사용 12초. 대상에게 마비 저항 2초 적용."
+    },
+    {
+      "id": "explorer_map_t1",
+      "label": "탐험가의 지도 1등급",
+      "effect": 14,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "방문한 방을 표시. F11로 지도 열기/닫기."
+    },
+    {
+      "id": "explorer_map_t2",
+      "label": "탐험가의 지도 2등급",
+      "effect": 14,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "방문한 방과 탈출·보스 방을 표시. F11로 지도 열기/닫기."
+    },
+    {
+      "id": "explorer_map_t3",
+      "label": "탐험가의 지도 3등급",
+      "effect": 14,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "전체 방 구조와 현재 방의 적을 표시. F11로 지도 열기/닫기."
+    },
+    {
+      "id": "guardian_sigil_t1",
+      "label": "수호의 인장 1등급",
+      "effect": 15,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "장착 후 발동하면 3초 동안 직접 피해 15% 감소. 재사용 30초."
+    },
+    {
+      "id": "guardian_sigil_t2",
+      "label": "수호의 인장 2등급",
+      "effect": 15,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "장착 후 발동하면 3초 동안 직접 피해 25% 감소. 재사용 30초."
+    },
+    {
+      "id": "guardian_sigil_t3",
+      "label": "수호의 인장 3등급",
+      "effect": 15,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "장착 후 발동하면 3초 동안 직접 피해 35% 감소. 재사용 30초."
+    },
+    {
+      "id": "sword_001",
+      "label": "일반 검",
+      "effect": 0,
+      "tier": 1,
+      "value": 100,
+      "kind": 2,
+      "description": "오래된 검이다."
+    },
+    {
+      "id": "flame_sword",
+      "label": "화염검",
+      "effect": 1,
+      "tier": 1,
+      "value": 200,
+      "kind": 2,
+      "description": "불타오르는 검.\n공격력 20\n화상 피해 적용"
+    },
+    {
+      "id": "frost_sword",
+      "label": "얼음검",
+      "effect": 2,
+      "tier": 1,
+      "value": 300,
+      "kind": 2,
+      "description": "서늘한 기운이 감도는 검.\n공격력 20\n냉각 효과 적용"
+    },
+    {
+      "id": "beam_sword",
+      "label": "광선검",
+      "effect": 3,
+      "tier": 1,
+      "value": 400,
+      "kind": 2,
+      "description": "포스가 함께하길.\n공격력 16\n공격 속도 +65%"
+    },
+    {
+      "id": "gun_001",
+      "label": "기본 총",
+      "effect": 4,
+      "tier": 1,
+      "value": 350,
+      "kind": 2,
+      "description": "기존 기본 총. 기본 공격력 10. 투사체 공격."
+    },
+    {
+      "id": "chronometer_t1",
+      "label": "시간의 모래시계 1등급",
+      "effect": 16,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "스킬 재사용 대기시간 8% 감소. 레벨 강화와 합산 최대 50%."
+    },
+    {
+      "id": "chronometer_t2",
+      "label": "시간의 모래시계 2등급",
+      "effect": 16,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "스킬 재사용 대기시간 14% 감소. 레벨 강화와 합산 최대 50%."
+    },
+    {
+      "id": "chronometer_t3",
+      "label": "시간의 모래시계 3등급",
+      "effect": 16,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "스킬 재사용 대기시간 20% 감소. 레벨 강화와 합산 최대 50%."
+    },
+    {
+      "id": "runic_focus_t1",
+      "label": "비전의 렌즈 1등급",
+      "effect": 17,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "E/Q 스킬 피해량 12% 증가."
+    },
+    {
+      "id": "runic_focus_t2",
+      "label": "비전의 렌즈 2등급",
+      "effect": 17,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "E/Q 스킬 피해량 22% 증가."
+    },
+    {
+      "id": "runic_focus_t3",
+      "label": "비전의 렌즈 3등급",
+      "effect": 17,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "E/Q 스킬 피해량 32% 증가."
+    },
+    {
+      "id": "echo_orb_t1",
+      "label": "메아리 수정 1등급",
+      "effect": 18,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "스킬 직접 타격으로 처치 시 E 쿨타임 초기화. 발동 간격 20초. Q는 초기화하지 않음."
+    },
+    {
+      "id": "echo_orb_t2",
+      "label": "메아리 수정 2등급",
+      "effect": 18,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "스킬 직접 타격으로 처치 시 E 쿨타임 초기화. 발동 간격 16초. Q는 초기화하지 않음."
+    },
+    {
+      "id": "echo_orb_t3",
+      "label": "메아리 수정 3등급",
+      "effect": 18,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "스킬 직접 타격으로 처치 시 E 쿨타임 초기화. 발동 간격 12초. Q는 초기화하지 않음."
+    },
+    {
+      "id": "arc_prism_t1",
+      "label": "파동 프리즘 1등급",
+      "effect": 19,
+      "tier": 1,
+      "value": 100,
+      "kind": 1,
+      "description": "E 폭·사거리와 Q 반경 10% 증가. 레벨 강화와 합산 최대 60%."
+    },
+    {
+      "id": "arc_prism_t2",
+      "label": "파동 프리즘 2등급",
+      "effect": 19,
+      "tier": 2,
+      "value": 200,
+      "kind": 1,
+      "description": "E 폭·사거리와 Q 반경 18% 증가. 레벨 강화와 합산 최대 60%."
+    },
+    {
+      "id": "arc_prism_t3",
+      "label": "파동 프리즘 3등급",
+      "effect": 19,
+      "tier": 3,
+      "value": 300,
+      "kind": 1,
+      "description": "E 폭·사거리와 Q 반경 26% 증가. 레벨 강화와 합산 최대 60%."
+    },
+    {
+      "id": "reset_tonic_t1",
+      "label": "회귀의 물약 1등급",
+      "effect": 20,
+      "tier": 1,
+      "value": 80,
+      "kind": 0,
+      "description": "E/Q의 남은 쿨타임 50% 회복. 회귀 물약 공통 사용 간격 10초. 시전 중 또는 쿨타임이 없으면 소모하지 않음."
+    },
+    {
+      "id": "reset_tonic_t2",
+      "label": "회귀의 물약 2등급",
+      "effect": 20,
+      "tier": 2,
+      "value": 160,
+      "kind": 0,
+      "description": "E/Q의 남은 쿨타임 75% 회복. 회귀 물약 공통 사용 간격 10초. 시전 중 또는 쿨타임이 없으면 소모하지 않음."
+    },
+    {
+      "id": "reset_tonic_t3",
+      "label": "회귀의 물약 3등급",
+      "effect": 20,
+      "tier": 3,
+      "value": 240,
+      "kind": 0,
+      "description": "E/Q의 남은 쿨타임 100% 회복. 회귀 물약 공통 사용 간격 10초. 시전 중 또는 쿨타임이 없으면 소모하지 않음."
+    },
+    {
+      "id": "focus_tonic_t1",
+      "label": "각성의 물약 1등급",
+      "effect": 21,
+      "tier": 1,
+      "value": 60,
+      "kind": 0,
+      "description": "10초간 E/Q 피해량 20% 증가. 중첩되지 않으며 낮은 등급으로 덮어쓸 수 없음."
+    },
+    {
+      "id": "focus_tonic_t2",
+      "label": "각성의 물약 2등급",
+      "effect": 21,
+      "tier": 2,
+      "value": 120,
+      "kind": 0,
+      "description": "10초간 E/Q 피해량 30% 증가. 중첩되지 않으며 낮은 등급으로 덮어쓸 수 없음."
+    },
+    {
+      "id": "focus_tonic_t3",
+      "label": "각성의 물약 3등급",
+      "effect": 21,
+      "tier": 3,
+      "value": 180,
+      "kind": 0,
+      "description": "10초간 E/Q 피해량 40% 증가. 중첩되지 않으며 낮은 등급으로 덮어쓸 수 없음."
+    },
+    {
+      "id": "greatsword_001",
+      "label": "기사단의 대검",
+      "effect": 5,
+      "tier": 1,
+      "value": 450,
+      "kind": 2,
+      "description": "녹슨 대검이다."
+    },
+    {
+      "id": "flame_greatsword",
+      "label": "화염 대검",
+      "effect": 6,
+      "tier": 1,
+      "value": 550,
+      "kind": 2,
+      "description": "불길을 머금은 대검.\n공격력 45\n화상 피해 적용"
+    },
+    {
+      "id": "frost_greatsword",
+      "label": "서리 대검",
+      "effect": 7,
+      "tier": 1,
+      "value": 650,
+      "kind": 2,
+      "description": "서리가 내려앉은 대검.\n공격력 45\n냉각 효과 적용"
+    }
+  ]
+}

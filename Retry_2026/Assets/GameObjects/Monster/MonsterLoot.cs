@@ -58,6 +58,7 @@ public class MonsterLoot : MonoBehaviour
     [ContextMenu("Generate Loot")]
     public void GenerateLoot()
     {
+        if (NetworkRuntime.IsOnline) return;
         if (generated || lootContainer == null)
         {
             return;
@@ -74,7 +75,7 @@ public class MonsterLoot : MonoBehaviour
         for (int i = 0; i < drops.Count; i++)
         {
             LootDropEntry drop = drops[i];
-            if (drop == null || drop.item == null)
+            if (drop == null || drop.item == null || drop.item.ItemId == "gun_001")
             {
                 continue;
             }

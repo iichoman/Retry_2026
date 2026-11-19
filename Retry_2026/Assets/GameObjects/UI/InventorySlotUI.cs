@@ -41,6 +41,7 @@ public class InventorySlotUI : MonoBehaviour, IPointerClickHandler
         if (nameText != null)
         {
             nameText.text = item != null ? item.DisplayName : string.Empty;
+            nameText.color = item != null ? item.RarityColor : Color.white;
         }
 
         GameUIVisualPolish.ApplyToSlot(transform);
@@ -90,15 +91,7 @@ public class InventorySlotUI : MonoBehaviour, IPointerClickHandler
         }
 
         iconImage.enabled = true;
-        Sprite sprite = item.Icon != null ? item.Icon : textureSet != null ? textureSet.missingIconSprite : null;
-        Color color = item.Icon != null ? Color.white : item.FallbackIconColor;
-
-        if (item.Icon == null && textureSet != null && textureSet.missingIconSprite != null)
-        {
-            color = textureSet.missingIconFallbackColor;
-        }
-
-        ApplyImage(iconImage, sprite, color, false);
+        ItemIconPresentation.Apply(iconImage, item, textureSet);
     }
 
     private static void ApplyImage(Image image, Sprite sprite, Color color, bool slicedWhenPossible)

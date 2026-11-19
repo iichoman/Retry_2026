@@ -34,7 +34,13 @@ public class PauseMenu : MonoBehaviour
     private Font font;
     private GameObject menuRoot, buttonContainer;
     private Text titleText;
+    private RectTransform boxRect;
     private bool isOpen;
+    private bool leaving;
+    private static PauseMenu active;
+    public static bool IsOpen => active != null && active.isActiveAndEnabled && active.isOpen;
+    private void Awake() => active = this;
+    private void OnDestroy() { if (active == this) active = null; GameplayCursorController.Active?.Refresh(); }
 
     private void Start()
     {
@@ -48,6 +54,7 @@ public class PauseMenu : MonoBehaviour
     private bool lastDead;
     private void Update()
     {
+        if (leaving) return;
         bool dead = IsLocalPlayerDead();
         if (dead != lastDead)
         {
@@ -55,6 +62,10 @@ public class PauseMenu : MonoBehaviour
             if (dead) SetMenu(true);            // 사망 → 메뉴 자동 오픈(계속하기 없음)
             else if (isOpen) RebuildButtons();  // 부활 등으로 살아나면 버튼 갱신
         }
+
+        if (GameOptions.IsOpen || GameOptions.LastCloseFrame==Time.frameCount || EconomyClient.Active?.IsOpen==true || EconomyClient.LastCloseFrame==Time.frameCount) return;
+        if (ExpeditionUI.Active?.InventoryOpen == true || ExpeditionUI.Active?.UpgradeOpen == true || ExpeditionUI.LastCloseFrame == Time.frameCount) return;
+        if (ChatUI.IsTyping) return;   // 채팅 입력 중 Esc는 채팅을 닫는 데 쓴다
 
         var kb = Keyboard.current;
         if (kb != null && kb.escapeKey.wasPressedThisFrame)
@@ -76,6 +87,9 @@ public class PauseMenu : MonoBehaviour
     {
         // 혹시 메뉴 열린 채 비활성화돼도 조작 복구
         if (isOpen) FreezeLocalControl(false);
+        if (menuRoot != null) menuRoot.SetActive(false);
+        isOpen = false;
+        GameplayCursorController.Active?.Refresh();
     }
 
     // ========================================================================
@@ -95,6 +109,7 @@ public class PauseMenu : MonoBehaviour
         {
             FreezeLocalControl(false);
         }
+        GameplayCursorController.Active?.Refresh();
     }
 
     // 메뉴 동안 내 인게임 캐릭터의 이동/카메라/공격만 비활성. 네트워크 송수신은 그대로 → 원격 플레이어 계속 동기화됨.
@@ -103,6 +118,7 @@ public class PauseMenu : MonoBehaviour
     {
         if (freeze)
         {
+            if(frozen.Count>0)return;
             frozen.Clear();
             var p = bootstrap != null ? bootstrap.LocalPlayer : null;   // 인게임 캐릭터 (로비엔 null)
             if (p != null)
@@ -110,6 +126,7 @@ public class PauseMenu : MonoBehaviour
                 FreezeOne(p, "Player_Movement");
                 FreezeOne(p, "Player_Camera_Controller");
                 FreezeOne(p, "Player_Attack");
+                FreezeOne(p, "PlayerDefenseController");
             }
         }
         else
@@ -139,30 +156,51 @@ public class PauseMenu : MonoBehaviour
         bool dead = IsLocalPlayerDead();
         titleText.text = dead ? "사망" : (session ? "메뉴 — 게임 중" : "메뉴");
 
-        if (session)
-            AddButton("로비로 나가기", ColBtnTan, ReturnToLobby);
-        else
-            AddButton("시작 화면으로", ColBtnTan, ReloadToTitle);
+        // 로그인 전이면 지금이 이미 시작 화면이라 "시작 화면으로"는 의미가 없다.
+        bool authed = bootstrap != null && bootstrap.Identity != null
+                      && bootstrap.Identity.IsAuthenticated;
 
-        AddButton("게임 종료", ColBtnDanger, QuitGame);
-        if (!dead) AddButton("계속하기", ColBtn, () => SetMenu(false));   // 사망 시엔 제거
+        int count = 0;
+        if (session) { AddButton("로비로 나가기", ColBtnTan, ReturnToLobby); count++; }
+        else if (authed) { AddButton("시작 화면으로", ColBtnTan, ReloadToTitle); count++; }
+
+        AddButton("설정", ColBtn, GameOptions.Open); count++;
+        AddButton("게임 종료", ColBtnDanger, QuitGame); count++;
+        if (!dead) { AddButton("계속하기", ColBtn, () => SetMenu(false)); count++; }   // 사망 시엔 제거
+
+        ResizeBox(count);
+    }
+
+    // 버튼 수만큼만 창을 잡는다. 빈 자리가 남지 않게.
+    //   위 여백 84(제목) + 아래 여백 28 + 버튼 56씩 + 사이 간격 14
+    private void ResizeBox(int buttonCount)
+    {
+        if (boxRect == null || buttonCount <= 0) return;
+        float h = 84f + 28f + buttonCount * 56f + (buttonCount - 1) * 14f;
+        boxRect.sizeDelta = new Vector2(400f, h);
     }
 
     // ── 동작 ──
     // 시작 화면으로 들어갈 때 LobbyUI가 읽는 자동 재로그인 플래그/닉네임 (PlayerPrefs)
     public const string PrefAutoLogin = "retry_autologin";
     public const string PrefAutoNick = "retry_autologin_nick";
+    // 인게임 동안 서버가 닉네임을 잠가 둔다. 로비로 돌아올 때 이 ID로 본인임을 증명한다.
+    public const string PrefAutoCid = "retry_autologin_cid";
+    // 세션 후 로비로 돌아올 때 다시 로그인해야 해서 비밀번호도 들고 있는다.
+    public const string PrefAutoPw = "retry_autologin_pw";
 
     // 세션 → 로비: 닉네임을 유지한 채 로비로 복귀.
     // 씬을 새로고침해 인게임 상태를 깨끗이 리셋한 뒤, 저장된 닉네임으로 자동 재로그인 → 로비 Main.
     private void ReturnToLobby()
     {
         string nick = (bootstrap != null && bootstrap.Identity != null) ? bootstrap.Identity.PlayerName : "";
+        int cid = (bootstrap != null && bootstrap.Identity != null) ? bootstrap.Identity.LocalClientId : 0;
         PlayerPrefs.SetString(PrefAutoNick, nick ?? "");
+        PlayerPrefs.SetString(PrefAutoPw, LobbyUI.LastPassword);
+        PlayerPrefs.SetInt(PrefAutoCid, cid);
         PlayerPrefs.SetInt(PrefAutoLogin, 1);
         PlayerPrefs.Save();
-        LeaveSession();   // 캐릭터를 세션에서 내보냄
-        DoReload();
+        StartCoroutine(LeaveThen(false));
     }
 
     // 시작(타이틀) 화면으로: 자동 재로그인 해제(닉네임 초기화) 후 새로고침.
@@ -193,7 +231,31 @@ public class PauseMenu : MonoBehaviour
 
     private void QuitGame()
     {
-        LeaveSession();   // 종료 전에 캐릭터를 세션에서 내보냄
+        StartCoroutine(LeaveThen(true));
+    }
+
+    private System.Collections.IEnumerator LeaveThen(bool quit)
+    {
+        if (leaving) yield break;
+        leaving = true;
+        foreach (var button in buttonContainer.GetComponentsInChildren<Button>()) button.interactable = false;
+        if (InSession() && bootstrap.Session != null && bootstrap.Session.IsConnected)
+        {
+            titleText.text = "출격 종료 중…";
+            var ab = bootstrap.GetComponent<ABClient>();
+            int sequence = ab != null ? ab.RequestAbandon() : 0;
+            float deadline = Time.realtimeSinceStartup + 5;
+            while (bootstrap.Session.IsConnected && ab != null && ab.State.sequence < sequence && Time.realtimeSinceStartup < deadline)
+                yield return null;
+            if (bootstrap.Session.IsConnected && (ab == null || sequence == 0 || ab.State.sequence < sequence || ab.State.result != 0))
+            {
+                leaving = false; RebuildButtons();
+                titleText.text = "종료 처리 실패 · 다시 시도해 주세요";
+                yield break;
+            }
+        }
+        LeaveSession();
+        if (!quit) { DoReload(); yield break; }
 #if UNITY_EDITOR
         UnityEditor.EditorApplication.isPlaying = false;
 #else
@@ -227,6 +289,7 @@ public class PauseMenu : MonoBehaviour
         var box = New("Box", menuRoot.transform);
         SetRect(box, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), new Vector2(-200, -160), new Vector2(200, 160));
         box.AddComponent<Image>().color = ColPanel;
+        boxRect = box.GetComponent<RectTransform>();
 
         var titleGo = New("Title", box.transform);
         SetRect(titleGo, new Vector2(0, 1), new Vector2(1, 1), new Vector2(24, -70), new Vector2(-24, -18));

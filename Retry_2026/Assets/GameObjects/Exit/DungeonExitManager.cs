@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Events;
@@ -34,6 +34,7 @@ public class DungeonExitManager : MonoBehaviour
     private bool escapeCompleted;
     private float exitSceneTimer = -1f;
     private int monsterKillCount;
+    private int localBossKillCount;
     private int playerKillCount;
 
     public static DungeonExitManager Instance { get; private set; }
@@ -80,6 +81,20 @@ public class DungeonExitManager : MonoBehaviour
         {
             RegisterPlayer(player);
         }
+    }
+
+    /// <summary>플레이 시간 측정을 지금부터 다시 시작한다. 던전 입장 시 호출.</summary>
+    public void ResetTimer()
+    {
+        startedAt = Time.time;
+        escapeCompleted = false;
+        escapedPlayers.Clear();
+        monsterKillCount = 0;
+        localBossKillCount = 0;
+        playerKillCount = 0;
+        LastResult = null;
+        if (cachedBootstrap == null) cachedBootstrap = FindFirstObjectByType<NetworkBootstrap>();
+        if (cachedBootstrap != null && cachedBootstrap.Inventory != null) cachedBootstrap.Inventory.ClearExtractionResult();
     }
 
     private void Update()
@@ -143,15 +158,61 @@ public class DungeonExitManager : MonoBehaviour
         CompleteEscape(player);
     }
 
+    // 탈출 결과창의 "로비로" 버튼.
+    //
+    // 이전 구현은 lobbySceneName("Lobby") 씬을 로드했는데 그런 씬이 프로젝트에
+    // 없어서(Build Settings에도 없음) 버튼이 아무 반응도 하지 않았다.
+    // 로비 UI는 인게임과 같은 씬 안에 있으므로, PauseMenu와 동일하게
+    // "세션 연결 해제 + 현재 씬 새로고침 + 자동 재로그인" 으로 처리한다.
     public void ReturnToLobby()
     {
-        if (string.IsNullOrWhiteSpace(lobbySceneName))
+        var bootstrap = FindFirstObjectByType<NetworkBootstrap>();
+
+        // 닉네임을 남겨두면 씬 재시작 후 자동 로그인 → 로비 화면으로 바로 복귀.
+        string nick = (bootstrap != null && bootstrap.Identity != null)
+            ? bootstrap.Identity.PlayerName
+            : string.Empty;
+
+        int cid = (bootstrap != null && bootstrap.Identity != null)
+            ? bootstrap.Identity.LocalClientId : 0;
+
+        PlayerPrefs.SetString(PauseMenu.PrefAutoNick, nick ?? string.Empty);
+        PlayerPrefs.SetString(PauseMenu.PrefAutoPw, LobbyUI.LastPassword);
+        PlayerPrefs.SetInt(PauseMenu.PrefAutoCid, cid);
+        PlayerPrefs.SetInt(PauseMenu.PrefAutoLogin, 1);
+        PlayerPrefs.Save();
+
+        // 세션 소켓을 끊어 캐릭터를 서버에서 내보낸다.
+        if (bootstrap != null && bootstrap.Session != null)
         {
-            Debug.LogWarning("Lobby scene name is empty.", this);
-            return;
+            bootstrap.Session.Disconnect();
         }
 
-        SceneManager.LoadScene(lobbySceneName);
+        LoadSceneOrReload(lobbySceneName);
+    }
+
+    // 지정한 씬이 Build Settings에 있으면 그 씬을, 없으면 현재 씬을 다시 로드한다.
+    // 별도 로비 씬을 나중에 만들더라도 이 코드를 고칠 필요가 없다.
+    private void LoadSceneOrReload(string sceneName)
+    {
+        bool loadable = !string.IsNullOrWhiteSpace(sceneName)
+            && Application.CanStreamedLevelBeLoaded(sceneName);
+
+        string target = loadable ? sceneName : SceneManager.GetActiveScene().name;
+
+        if (!loadable && !string.IsNullOrWhiteSpace(sceneName))
+        {
+            Debug.Log($"[Exit] '{sceneName}' 씬이 Build Settings에 없어 현재 씬을 새로고침한다.");
+        }
+
+        try
+        {
+            SceneManager.LoadScene(target);
+        }
+        catch (System.Exception e)
+        {
+            Debug.LogError($"[Exit] 씬 로드 실패 ({target}): {e.Message}", this);
+        }
     }
 
     private bool ShouldCompleteEscape()
@@ -190,6 +251,35 @@ public class DungeonExitManager : MonoBehaviour
         }
     }
 
+    // "00001" 같은 내부 ID 대신 실제 닉네임을 찾는다.
+    //  1) 세션 로컬 플레이어면 로그인 닉네임
+    //  2) 원격 플레이어면 오브젝트 이름 "RemotePlayer_3(홍길동)"에서 추출
+    //  3) 못 찾으면 PlayerId
+    private string ResolveDisplayName(Player player)
+    {
+        if (player == null) return string.Empty;
+
+        if (cachedBootstrap == null) cachedBootstrap = FindFirstObjectByType<NetworkBootstrap>();
+        if (cachedBootstrap != null)
+        {
+            if (cachedBootstrap.LocalPlayer == player.gameObject
+                && cachedBootstrap.Identity != null
+                && !string.IsNullOrWhiteSpace(cachedBootstrap.Identity.PlayerName))
+            {
+                return cachedBootstrap.Identity.PlayerName;
+            }
+        }
+
+        string goName = player.gameObject.name;
+        int open = goName.IndexOf('(');
+        int close = goName.LastIndexOf(')');
+        if (open >= 0 && close > open + 1) return goName.Substring(open + 1, close - open - 1);
+
+        return player.PlayerId;
+    }
+
+    private NetworkBootstrap cachedBootstrap;
+
     private DungeonExitResult BuildResult(Player finalPlayer)
     {
         var result = new DungeonExitResult
@@ -198,6 +288,7 @@ public class DungeonExitManager : MonoBehaviour
             finalPlayerId = finalPlayer != null ? finalPlayer.PlayerId : string.Empty,
             escapedPlayerCount = escapedPlayers.Count,
             monsterKillCount = monsterKillCount,
+            bossKillCount = localBossKillCount,
             playerKillCount = playerKillCount
         };
 
@@ -208,11 +299,44 @@ public class DungeonExitManager : MonoBehaviour
                 result.escapedPlayerIds.Add(player.PlayerId);
             }
 
-            AddInventoryToResult(player, result);
+            string nick = ResolveDisplayName(player);
+            if (!string.IsNullOrWhiteSpace(nick)) result.escapedPlayerNames.Add(nick);
+
+            if (!NetworkRuntime.IsOnline) AddInventoryToResult(player, result);
+        }
+
+        if (NetworkRuntime.IsOnline)
+        {
+            // Server sends this immutable acquired-only snapshot immediately before extraction success.
+            if (cachedBootstrap == null) cachedBootstrap = FindFirstObjectByType<NetworkBootstrap>();
+            var bridge = cachedBootstrap != null ? cachedBootstrap.Inventory : null;
+            result.serverConfirmedInventory = bridge != null && bridge.HasExtractionResult;
+            result.snapshotUnavailable = !result.serverConfirmedInventory;
+            if (result.serverConfirmedInventory)
+            {
+                var snapshot = bridge.ExtractionResult;
+                result.totalValue = snapshot.totalValue;
+                result.bossKillCount = snapshot.bossKillCount;
+                for (int i = 0; i < snapshot.entryCount; i++)
+                {
+                    var entry = snapshot.entries[i];
+                    var item = bridge.Resolve(entry.itemHash);
+                    if (item == null) continue;
+                    result.AddItem(item, entry.count, entry.unitValue);
+                    if (item.ItemType == ItemType.Currency) result.gold += entry.count;
+                }
+            }
         }
 
         return result;
     }
+
+    // 서버가 "이건 네가 잡았다"고 알려줄 때 쓰는 경로.
+    // 몬스터/플레이어 사망은 전부 서버가 판정하고 MonsterDied/PlayerDied로 내려온다.
+    // 로컬 Monster_State.Die()는 네트워크 플레이에서 호출되지 않아 집계가 0이었다.
+    public void RegisterNetworkMonsterKill() => monsterKillCount++;
+    public void RegisterLocalBossKill() { if(!NetworkRuntime.IsOnline) localBossKillCount++; }
+    public void RegisterNetworkPlayerKill() => playerKillCount++;
 
     public void RegisterMonsterKill(GameObject attacker)
     {
@@ -266,6 +390,7 @@ public class DungeonExitManager : MonoBehaviour
             }
 
             result.AddItem(slot.item, slot.count);
+            result.totalValue += (long)slot.item.ExtractionValue * slot.count;
         }
     }
 
@@ -277,7 +402,8 @@ public class DungeonExitManager : MonoBehaviour
             return;
         }
 
-        SceneManager.LoadScene(exitSceneName);
+        // 결과 씬도 없을 수 있으므로 동일하게 방어한다.
+        LoadSceneOrReload(exitSceneName);
     }
 
     private void RemoveMissingPlayers()
@@ -394,12 +520,17 @@ public class DungeonExitResult
     public int monsterKillCount;
     public int playerKillCount;
     public int gold;
+    public long totalValue;
+    public int bossKillCount;
+    public bool serverConfirmedInventory;
+    public bool snapshotUnavailable;
     public List<string> escapedPlayerIds = new List<string>();
+    public List<string> escapedPlayerNames = new List<string>();   // 표시용 닉네임
     public List<DungeonExitItemSummary> items = new List<DungeonExitItemSummary>();
 
     public TimeSpan ElapsedTime => TimeSpan.FromSeconds(Mathf.Max(0f, elapsedSeconds));
 
-    public void AddItem(ItemData item, int count)
+    public void AddItem(ItemData item, int count, int unitValue = -1)
     {
         if (item == null || count <= 0)
         {
@@ -422,7 +553,8 @@ public class DungeonExitResult
             itemId = item.ItemId,
             displayName = item.DisplayName,
             itemType = item.ItemType,
-            count = count
+            count = count,
+            unitValue = unitValue >= 0 ? unitValue : item.ExtractionValue
         });
     }
 }
@@ -434,4 +566,6 @@ public class DungeonExitItemSummary
     public string displayName;
     public ItemType itemType;
     public int count;
+    public int unitValue;
+    public long TotalValue => (long)unitValue * count;
 }

@@ -1,36 +1,37 @@
-using System;
+ï»¿using System;
 using System.Runtime.InteropServices;
 
 // ============================================================================
 //  LobbyPackets.cs
-//  ¼­¹ö Common/PacketProtocol.h ¿¡ ´ëÀÀÇÏ´Â "Ãß°¡" ÆÐÅ¶ Á¤ÀÇ (Å¬¶ó Ãø).
-//  ±âÁ¸ PacketProtocol.cs ÀÇ PacketType enum Àº °Çµå¸®Áö ¾Ê°í,
-//  »õ ÆÐÅ¶ Å¸ÀÔÀº ¿©±â Á¤¼ö »ó¼ö·Î Á¤ÀÇ ÈÄ (PacketType) Ä³½ºÆÃÇØ¼­ »ç¿ëÇÑ´Ù.
-//  (enum °ªÀº ¼­¹ö¿Í µ¿ÀÏ: 11~14)
+//  ì„œë²„ Common/PacketProtocol.h ì— ëŒ€ì‘í•˜ëŠ” "ì¶”ê°€" íŒ¨í‚· ì •ì˜ (í´ë¼ ì¸¡).
+//  ê¸°ì¡´ PacketProtocol.cs ì˜ PacketType enum ì€ ê±´ë“œë¦¬ì§€ ì•Šê³ ,
+//  ìƒˆ íŒ¨í‚· íƒ€ìž…ì€ ì—¬ê¸° ì •ìˆ˜ ìƒìˆ˜ë¡œ ì •ì˜ í›„ (PacketType) ìºìŠ¤íŒ…í•´ì„œ ì‚¬ìš©í•œë‹¤.
+//  (enum ê°’ì€ ì„œë²„ì™€ ë™ì¼: 11~14)
 //
-//  ÇÊµå ¼ø¼­/Å¸ÀÔÀº ¼­¹ö¿Í ¹Ýµå½Ã µ¿ÀÏÇØ¾ß ÇÔ.
+//  í•„ë“œ ìˆœì„œ/íƒ€ìž…ì€ ì„œë²„ì™€ ë°˜ë“œì‹œ ë™ì¼í•´ì•¼ í•¨.
 // ============================================================================
 
-// ½Å±Ô ·Îºñ ÆÐÅ¶ Å¸ÀÔ (¼­¹ö enum 11~14¿Í µ¿ÀÏ)
+// ì‹ ê·œ ë¡œë¹„ íŒ¨í‚· íƒ€ìž… (ì„œë²„ enum 11~14ì™€ ë™ì¼)
 public static class LobbyPacketType
 {
-    public const int ROOM_LEAVE_REQUEST = 11;  // C¡æS: ÆÄÆ¼ ³ª°¡±â
-    public const int ROOM_LEAVE_RESULT = 12;  // S¡æC: ³ª°¡±â °á°ú(º»ÀÎ)
-    public const int ROOM_SELECT_TEAM_REQUEST = 13;  // C¡æS: ÆÀ ½½·Ô ¼±ÅÃ
-    public const int ROOM_STATE = 14;  // S¡æC: ¹æ ¸â¹ö/ÆÀ ÇöÈ² push
+    public const int ROOM_LEAVE_REQUEST = 11;  // Câ†’S: íŒŒí‹° ë‚˜ê°€ê¸°
+    public const int ROOM_LEAVE_RESULT = 12;  // Sâ†’C: ë‚˜ê°€ê¸° ê²°ê³¼(ë³¸ì¸)
+    public const int ROOM_SELECT_TEAM_REQUEST = 13;  // Câ†’S: íŒ€ ìŠ¬ë¡¯ ì„ íƒ
+    public const int ROOM_STATE = 14;  // Sâ†’C: ë°© ë©¤ë²„/íŒ€ í˜„í™© push
+    public const int ROOM_READY_REQUEST = 17;  // Câ†’S: ì¤€ë¹„ í† ê¸€
 }
 
-// ·Îºñ »ó¼ö (¼­¹ö¿Í µ¿ÀÏ)
+// ë¡œë¹„ ìƒìˆ˜ (ì„œë²„ì™€ ë™ì¼)
 public static class LobbyConst
 {
-    public const int MAX_TEAMS = 10;   // 5x2 ±×¸®µå
-    public const int TEAM_CAPACITY = 3;    // ÇÑ ÆÀ 3¸í
+    public const int MAX_TEAMS = 10;   // 5x2 ê·¸ë¦¬ë“œ
+    public const int TEAM_CAPACITY = 3;    // í•œ íŒ€ 3ëª…
     public const int TEAM_UNASSIGNED = -1;
     public const int MAX_SESSION_PLAYERS = 30;
     public const int MAX_PLAYER_NAME = 32;
 }
 
-// ¦¡¦¡ ±âÁ¸¿¡ ´©¶ôµÅ ÀÖ´ø ¹æ ¸ñ·Ï ±¸Á¶Ã¼ (ROOM_LIST_RESULT ¿ªÁ÷·ÄÈ­¿ë) ¦¡¦¡
+// â”€â”€ ê¸°ì¡´ì— ëˆ„ë½ë¼ ìžˆë˜ ë°© ëª©ë¡ êµ¬ì¡°ì²´ (ROOM_LIST_RESULT ì—­ì§ë ¬í™”ìš©) â”€â”€
 //    server: RoomListEntry { int roomId, hostClientId, currentPlayers, maxPlayers; char roomName[32]; }
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct RoomListEntry
@@ -52,36 +53,36 @@ public struct RoomListResult
     public RoomListEntry[] rooms;
 }
 
-// ¦¡¦¡ ½Å±Ô: ÆÀ ¼±ÅÃ / ³ª°¡±â / ¹æ ÇöÈ² ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
+// â”€â”€ ì‹ ê·œ: íŒ€ ì„ íƒ / ë‚˜ê°€ê¸° / ë°© í˜„í™© â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-// C¡æS: ÆÀ ½½·Ô ¼±ÅÃ (0..MAX_TEAMS-1, ¶Ç´Â -1=¹Ì¹èÁ¤)
+// Câ†’S: íŒ€ ìŠ¬ë¡¯ ì„ íƒ (0..MAX_TEAMS-1, ë˜ëŠ” -1=ë¯¸ë°°ì •)
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct RoomSelectTeamRequest
 {
     public int teamId;
 }
 
-// S¡æC: ³ª°¡±â °á°ú (³ª°£ º»ÀÎ¿¡°Ô¸¸)
+// Sâ†’C: ë‚˜ê°€ê¸° ê²°ê³¼ (ë‚˜ê°„ ë³¸ì¸ì—ê²Œë§Œ)
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct RoomLeaveResult
 {
     public int success;
 }
 
-// ¹æ ¸â¹ö 1¸í (ROOM_STATE Ç×¸ñ). server RoomMemberEntry ¿Í µ¿ÀÏ.
+// ë°© ë©¤ë²„ 1ëª… (ROOM_STATE í•­ëª©). server RoomMemberEntry ì™€ ë™ì¼.
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct RoomMemberEntry
 {
     public int clientId;
-    public int teamId;       // -1=¹Ì¹èÁ¤, 0..MAX_TEAMS-1
-    public int isHost;       // 1=¹æÀå
+    public int teamId;       // -1=ë¯¸ë°°ì •, 0..MAX_TEAMS-1
+    public int isHost;       // 1=ë°©ìž¥
+    public int isReady;      // 1=ì¤€ë¹„ ì™„ë£Œ. ë°©ìž¥ì€ í•­ìƒ 1.
     [MarshalAs(UnmanagedType.ByValArray, SizeConst = 32)]   // MAX_PLAYER_NAME (UTF-8)
     public byte[] playerName;
 }
 
-// S¡æC: ¹æ(ÆÄÆ¼) ÀüÃ¼ ÇöÈ². server RoomStateData ¿Í µ¿ÀÏ.
-//   count(4) + 30 * (4+4+4+32=44) = 4 + 1320 = 1324... ¡æ Çì´õ Á¤·Ä ÁÖÀÇ:
-//   ½ÇÁ¦·Î´Â roomId/hostClientId/memberCount(12) + 30*44(1320) = 1332 bytes
+// Sâ†’C: ë°©(íŒŒí‹°) ì „ì²´ í˜„í™©. server RoomStateData ì™€ ë™ì¼.
+//   roomId/hostClientId/memberCount(12) + 30 * (4+4+4+4+32=48)(1440) = 1452 bytes
 [StructLayout(LayoutKind.Sequential, Pack = 1)]
 public struct RoomStateData
 {
@@ -92,25 +93,25 @@ public struct RoomStateData
     public RoomMemberEntry[] members;
 }
 
-// ´Ð³×ÀÓ/¹æÀÌ¸§ ÀÎÄÚµù ÇïÆÛ.
-// ÆÐÅ¶ÀÇ ÀÌ¸§ ÇÊµå´Â °íÁ¤ ±æÀÌ UTF-8 ¹ÙÀÌÆ® ¹è¿­(³Î ÆÐµù).
-// ByValTStr(ANSI)Àº OS ÄÚµåÆäÀÌÁö¿¡ µû¶ó ÇÑ±ÛÀÌ ±úÁö¹Ç·Î UTF-8·Î ÅëÀÏ.
+// ë‹‰ë„¤ìž„/ë°©ì´ë¦„ ì¸ì½”ë”© í—¬í¼.
+// íŒ¨í‚·ì˜ ì´ë¦„ í•„ë“œëŠ” ê³ ì • ê¸¸ì´ UTF-8 ë°”ì´íŠ¸ ë°°ì—´(ë„ íŒ¨ë”©).
+// ByValTStr(ANSI)ì€ OS ì½”ë“œíŽ˜ì´ì§€ì— ë”°ë¼ í•œê¸€ì´ ê¹¨ì§€ë¯€ë¡œ UTF-8ë¡œ í†µì¼.
 public static class NameCodec
 {
-    // ¹®ÀÚ¿­ ¡æ °íÁ¤ ±æÀÌ UTF-8 ¹ÙÀÌÆ® ¹è¿­. ÃÊ°ú ½Ã UTF-8 ¹®ÀÚ °æ°è¿¡¼­ ¾ÈÀüÇÏ°Ô ÀÚ¸§.
+    // ë¬¸ìžì—´ â†’ ê³ ì • ê¸¸ì´ UTF-8 ë°”ì´íŠ¸ ë°°ì—´. ì´ˆê³¼ ì‹œ UTF-8 ë¬¸ìž ê²½ê³„ì—ì„œ ì•ˆì „í•˜ê²Œ ìžë¦„.
     public static byte[] Encode(string s, int size)
     {
         var buf = new byte[size];
         if (string.IsNullOrEmpty(s)) return buf;
         var utf8 = System.Text.Encoding.UTF8.GetBytes(s);
-        int n = System.Math.Min(utf8.Length, size - 1);   // ³Î Á¾·á¿ë 1¹ÙÀÌÆ® ¿¹¾à
-        // ¸ÖÆ¼¹ÙÀÌÆ® ¹®ÀÚ°¡ Àß¸®Áö ¾Êµµ·Ï continuation byte(10xxxxxx)¸é °æ°è±îÁö µÚ·Î ¹°¸²
+        int n = System.Math.Min(utf8.Length, size - 1);   // ë„ ì¢…ë£Œìš© 1ë°”ì´íŠ¸ ì˜ˆì•½
+        // ë©€í‹°ë°”ì´íŠ¸ ë¬¸ìžê°€ ìž˜ë¦¬ì§€ ì•Šë„ë¡ continuation byte(10xxxxxx)ë©´ ê²½ê³„ê¹Œì§€ ë’¤ë¡œ ë¬¼ë¦¼
         while (n > 0 && n < utf8.Length && (utf8[n] & 0xC0) == 0x80) n--;
         System.Array.Copy(utf8, buf, n);
         return buf;
     }
 
-    // °íÁ¤ ±æÀÌ UTF-8 ¹ÙÀÌÆ® ¹è¿­ ¡æ ¹®ÀÚ¿­ (Ã¹ ³Î Àü±îÁö).
+    // ê³ ì • ê¸¸ì´ UTF-8 ë°”ì´íŠ¸ ë°°ì—´ â†’ ë¬¸ìžì—´ (ì²« ë„ ì „ê¹Œì§€).
     public static string Decode(byte[] buf)
     {
         if (buf == null) return "";

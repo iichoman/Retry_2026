@@ -20,22 +20,31 @@ public class Defalult_Input : MonoBehaviour
     public bool Interact { get; private set; }
     public bool LockOn { get; private set; }
     public bool Inventory { get; private set; }
-    public bool Jump { get; private set; }
+    // Keep the legacy property/UnityEvent for serialized prefab compatibility. No jump is sent.
+    public bool Jump => false;
+    private bool dashHeld;
+    private bool parryHeld;
+    public bool Dash => IsGameplayInputEnabled && dashHeld;
+    public bool Parry => IsGameplayInputEnabled && parryHeld;
     public PlayerInputMode InputMode { get; private set; } = PlayerInputMode.Gameplay;
-    public bool IsGameplayInputEnabled => InputMode == PlayerInputMode.Gameplay;
+    public bool IsGameplayInputEnabled => InputMode == PlayerInputMode.Gameplay && !ChatUI.IsTyping
+        && !GameOptions.IsOpen && !PauseMenu.IsOpen && EconomyClient.Active?.IsOpen != true;
+    public void ResetLookInput() => lookInput = Vector2.zero;
 
     public event Action HandleLockon;
     public event Action InventoryPressed;
 
-    // ¦¡¦¡ Inventory ÀÔ·Â ¾ÈÀüÀåÄ¡ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
-    // ÀÌ ÇÁ·ÎÁ§Æ®ÀÇ PlayerInputÀº Behavior=InvokeUnityEvents ÀÌ°í,
-    // ÀÌº¥Æ®°¡ "¾×¼Ç GUID"·Î¸¸ ¿¬°áµÈ´Ù. ¾×¼ÇÀ» ´Ù½Ã ¸¸µé¸é GUID°¡ ¹Ù²î¾î
-    // ÇÁ¸®ÆÕÀÇ ±âÁ¸ ¿¬°á°ú ¾î±ß³ª°í, ±×·¯¸é ¾Æ¹« ·Î±×µµ ¾øÀÌ Á¶¿ëÈ÷ Á×´Â´Ù.
-    // °Ô´Ù°¡ PlayerInputÀÇ Default Action MapÀÌ ºñ¾î ÀÖ¾î ¸ÊÀÌ ÀÚµ¿À¸·Î ÄÑÁöÁöµµ ¾Ê´Â´Ù.
-    // ¡æ GUID°¡ ¾Æ´Ï¶ó "ÀÌ¸§"À¸·Î Á÷Á¢ ¿¬°áÇÏ°í, ¾×¼ÇÀ» ¸í½ÃÀûÀ¸·Î Enable ÇÑ´Ù.
-    //   ±×·¡µµ ¾×¼Ç ÀÚÃ¼°¡ ¾øÀ¸¸é i Å° Á÷Á¢ Æú¸µÀ¸·Î Æú¹éÇÑ´Ù.
+    // â”€â”€ Inventory ì…ë ¥ ì•ˆì „ì¥ì¹˜ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ì´ í”„ë¡œì íŠ¸ì˜ PlayerInputì€ Behavior=InvokeUnityEvents ì´ê³ ,
+    // ì´ë²¤íŠ¸ê°€ "ì•¡ì…˜ GUID"ë¡œë§Œ ì—°ê²°ëœë‹¤. ì•¡ì…˜ì„ ë‹¤ì‹œ ë§Œë“¤ë©´ GUIDê°€ ë°”ë€Œì–´
+    // í”„ë¦¬íŒ¹ì˜ ê¸°ì¡´ ì—°ê²°ê³¼ ì–´ê¸‹ë‚˜ê³ , ê·¸ëŸ¬ë©´ ì•„ë¬´ ë¡œê·¸ë„ ì—†ì´ ì¡°ìš©íˆ ì£½ëŠ”ë‹¤.
+    // ê²Œë‹¤ê°€ PlayerInputì˜ Default Action Mapì´ ë¹„ì–´ ìˆì–´ ë§µì´ ìë™ìœ¼ë¡œ ì¼œì§€ì§€ë„ ì•ŠëŠ”ë‹¤.
+    // â†’ GUIDê°€ ì•„ë‹ˆë¼ "ì´ë¦„"ìœ¼ë¡œ ì§ì ‘ ì—°ê²°í•˜ê³ , ì•¡ì…˜ì„ ëª…ì‹œì ìœ¼ë¡œ Enable í•œë‹¤.
+    //   ê·¸ë˜ë„ ì•¡ì…˜ ìì²´ê°€ ì—†ìœ¼ë©´ i í‚¤ ì§ì ‘ í´ë§ìœ¼ë¡œ í´ë°±í•œë‹¤.
     private InputAction inventoryAction;
-    private int lastInventoryFrame = -1;   // UnityEvent¿Í Áßº¹ ¹ßÈ­ ¹æÁö
+    private InputAction dashAction;
+    private InputAction parryAction;
+    private int lastInventoryFrame = -1;   // UnityEventì™€ ì¤‘ë³µ ë°œí™” ë°©ì§€
 
     private void Awake()
     {
@@ -44,23 +53,30 @@ public class Defalult_Input : MonoBehaviour
         {
             inventoryAction = pi.actions.FindAction("Player/Inventory", false)
                            ?? pi.actions.FindAction("Inventory", false);
+            dashAction = pi.actions.FindAction("Player/Dash", false) ?? pi.actions.FindAction("Player/Jump", false);
+            parryAction = pi.actions.FindAction("Player/Parry", false);
         }
+
+        if (dashAction != null) { dashAction.performed += OnJump; dashAction.canceled += OnJump; }
+        if (parryAction != null) { parryAction.performed += OnParry; parryAction.canceled += OnParry; }
 
         if (inventoryAction != null)
         {
             inventoryAction.performed += HandleInventoryPerformed;
-            inventoryAction.Enable();   // Default Action MapÀÌ ºñ¾î ÀÖ¾îµµ È®½ÇÈ÷ ÄÒ´Ù
+            inventoryAction.Enable();   // Default Action Mapì´ ë¹„ì–´ ìˆì–´ë„ í™•ì‹¤íˆ ì¼ ë‹¤
         }
         else
         {
-            Debug.LogWarning("[Defalult_Input] Inventory ¾×¼ÇÀ» Ã£Áö ¸øÇß½À´Ï´Ù. " +
-                             "InputSystem_ActionsÀÇ Player ¸Ê¿¡ Inventory(<Keyboard>/i)¸¦ Ãß°¡ÇÏ¼¼¿ä. " +
-                             "Áö±İÀº i Å° Á÷Á¢ ÀÔ·ÂÀ¸·Î µ¿ÀÛÇÕ´Ï´Ù.", this);
+            Debug.LogWarning("[Defalult_Input] Inventory ì•¡ì…˜ì„ ì°¾ì§€ ëª»í–ˆìŠµë‹ˆë‹¤. " +
+                             "InputSystem_Actionsì˜ Player ë§µì— Inventory(<Keyboard>/i)ë¥¼ ì¶”ê°€í•˜ì„¸ìš”. " +
+                             "ì§€ê¸ˆì€ i í‚¤ ì§ì ‘ ì…ë ¥ìœ¼ë¡œ ë™ì‘í•©ë‹ˆë‹¤.", this);
         }
     }
 
     private void OnDestroy()
     {
+        if (dashAction != null) { dashAction.performed -= OnJump; dashAction.canceled -= OnJump; }
+        if (parryAction != null) { parryAction.performed -= OnParry; parryAction.canceled -= OnParry; }
         if (inventoryAction != null)
         {
             inventoryAction.performed -= HandleInventoryPerformed;
@@ -69,7 +85,9 @@ public class Defalult_Input : MonoBehaviour
 
     private void Update()
     {
-        // ¾×¼ÇÀÌ ¾øÀ» ¶§¸¸ ¾²´Â Æú¹é. (¾×¼ÇÀÌ ÀÖÀ¸¸é À§ °æ·Î·Î ÀÌ¹Ì Ã³¸®µÊ)
+        if (dashAction == null) dashHeld = IsGameplayInputEnabled && Keyboard.current != null && Keyboard.current.spaceKey.isPressed;
+        if (parryAction == null) parryHeld = IsGameplayInputEnabled && Mouse.current != null && Mouse.current.rightButton.isPressed;
+        // ì•¡ì…˜ì´ ì—†ì„ ë•Œë§Œ ì“°ëŠ” í´ë°±. (ì•¡ì…˜ì´ ìˆìœ¼ë©´ ìœ„ ê²½ë¡œë¡œ ì´ë¯¸ ì²˜ë¦¬ë¨)
         if (inventoryAction != null) return;
 
         var kb = Keyboard.current;
@@ -81,9 +99,10 @@ public class Defalult_Input : MonoBehaviour
 
     private void HandleInventoryPerformed(InputAction.CallbackContext _) => FireInventory();
 
-    // ¾î´À °æ·Î·Î µé¾î¿Àµç ÇÑ ÇÁ·¹ÀÓ¿¡ ÇÑ ¹ø¸¸ ¹ßÈ­
+    // ì–´ëŠ ê²½ë¡œë¡œ ë“¤ì–´ì˜¤ë“  í•œ í”„ë ˆì„ì— í•œ ë²ˆë§Œ ë°œí™”
     private void FireInventory()
     {
+        if (ChatUI.IsTyping) return;   // ì±„íŒ… ì…ë ¥ ì¤‘ì—” 'i'ê°€ ì¸ë²¤í† ë¦¬ë¥¼ ì—´ì§€ ì•ŠëŠ”ë‹¤
         if (lastInventoryFrame == Time.frameCount) return;
         lastInventoryFrame = Time.frameCount;
 
@@ -93,7 +112,9 @@ public class Defalult_Input : MonoBehaviour
 
     public Vector2 Move => IsGameplayInputEnabled ? moveInput : Vector2.zero;
     public Vector2 Look => IsGameplayInputEnabled ? lookInput : Vector2.zero;
-    public bool Sprint => IsGameplayInputEnabled && sprint;
+    // ìŠ¤íƒœë¯¸ë‚˜ê°€ 0ì´ë©´ ë‹¬ë¦´ ìˆ˜ ì—†ë‹¤.
+    public bool Sprint => IsGameplayInputEnabled && sprint
+        && (PlayerStamina.Local == null || PlayerStamina.Local.CanSprint);
     public bool Crouch => IsGameplayInputEnabled && crouch;
 
     public void OnMove(InputAction.CallbackContext context)
@@ -120,14 +141,18 @@ public class Defalult_Input : MonoBehaviour
 
     public void OnJump(InputAction.CallbackContext context)
     {
-        if (!IsGameplayInputEnabled)
-        {
-            Jump = false;
-            return;
-        }
-
-        Jump = context.ReadValueAsButton();
+        dashHeld = IsGameplayInputEnabled && context.ReadValueAsButton();
     }
+
+    public void OnParry(InputAction.CallbackContext context) => parryHeld = IsGameplayInputEnabled && context.ReadValueAsButton();
+
+    private void OnEnable()
+    {
+        dashAction?.Enable();
+        parryAction?.Enable();
+    }
+
+    private void OnDisable() => ClearGameplayInput();
 
     public void OnSprint(InputAction.CallbackContext context)
     {
@@ -190,7 +215,7 @@ public class Defalult_Input : MonoBehaviour
         }
     }
 
-    // PlayerInputÀÇ UnityEvent°¡ ¿¬°áµÅ ÀÖÀ¸¸é ÀÌ °æ·Î·Îµµ µé¾î¿Â´Ù(Áßº¹Àº FireInventory°¡ Â÷´Ü).
+    // PlayerInputì˜ UnityEventê°€ ì—°ê²°ë¼ ìˆìœ¼ë©´ ì´ ê²½ë¡œë¡œë„ ë“¤ì–´ì˜¨ë‹¤(ì¤‘ë³µì€ FireInventoryê°€ ì°¨ë‹¨).
     public void OnInventory(InputAction.CallbackContext context)
     {
         Inventory = context.ReadValueAsButton();
@@ -205,6 +230,7 @@ public class Defalult_Input : MonoBehaviour
     {
         if (InputMode == mode)
         {
+            GameplayCursorController.Active?.Refresh();
             return;
         }
 
@@ -214,6 +240,7 @@ public class Defalult_Input : MonoBehaviour
         {
             ClearGameplayInput();
         }
+        GameplayCursorController.Active?.Refresh();
     }
 
     private void ClearGameplayInput()
@@ -222,7 +249,8 @@ public class Defalult_Input : MonoBehaviour
         lookInput = Vector2.zero;
         sprint = false;
         crouch = false;
-        Jump = false;
+        dashHeld = false;
+        parryHeld = false;
         Attack = false;
         Interact = false;
         LockOn = false;

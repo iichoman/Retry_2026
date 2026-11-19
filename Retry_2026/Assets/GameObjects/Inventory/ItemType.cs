@@ -1,9 +1,11 @@
-public enum ItemType
+﻿public enum ItemType
 {
     Consumable,
     Weapon,
     Armor,
     Material,
     Quest,
-    Currency
+    Currency,
+    Passive,
+    Active
 }

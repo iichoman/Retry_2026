@@ -28,13 +28,26 @@ public class Player_Camera_Controller : MonoBehaviour
     [Header("Lock-On")]
     [SerializeField] private bool lockOnControlsCamera = true;
     [SerializeField, Min(0.01f)] private float lockOnRotationLerp = 12f;
-    [SerializeField] private Vector3 lockOnTargetOffset = new Vector3(0f, 1.2f, 0f);
+
+    [SerializeField, Min(1f)] private float lockOnMaxYawSpeed = 130f;
+    [SerializeField, Range(0f, 40f)] private float lockOnPitch = 14f;
+    [SerializeField, Range(0f, .5f)] private float duelFocusWeight = .22f;
+    [SerializeField, Min(0f)] private float maxDuelFocusOffset = 2f;
+    [SerializeField, Min(.1f)] private float closeTargetDeadZone = .75f;
+    [SerializeField, Min(1f)] private float lockOnMaxDistance = 6.5f;
+    [SerializeField, Range(0f, 1.5f)] private float lockOnShoulderOffset = .8f;
+    [SerializeField, Min(.1f)] private float lockOnBlendSpeed = 6f;
+    private float aimWeight,aimYaw,aimPitch = 12f;
+    private bool wasSkillAiming;
+    public float SkillAimWeight=>aimWeight;
+    private float lockOnWeight;
+    private Vector3 duelFocusOffset;
+    private Camera viewCamera;
 
     [SerializeField] private LayerMask collisionMask;
     [SerializeField] private float collisionRadius = 0.25f;
     [SerializeField] private float collisionBuffer = 0.15f;
-    [SerializeField] private float minDistance = 0.5f;
-    [SerializeField] private float collisionRetractLerp = 35f;
+    // No minimum retreat distance: forcing one would place the lens inside nearby walls.
     [SerializeField] private float collisionReturnLerp = 8f;
     [SerializeField] private bool preventPathClipping = false;
     [SerializeField, Min(1f)] private float pathClipResetDistanceMultiplier = 1.5f;
@@ -48,7 +61,10 @@ public class Player_Camera_Controller : MonoBehaviour
     private bool hasValidCameraPosition;
     private bool hasSmoothedPivotPosition;
     private Vector3 smoothedPivotPosition;
-    private readonly RaycastHit[] collisionHits = new RaycastHit[8];
+    private readonly RaycastHit[] collisionHits = new RaycastHit[64];
+    private readonly Collider[] collisionOverlaps = new Collider[32];
+    private SphereCollider collisionProbe;
+    private const float CollisionSkin = .01f;
 
     public Transform CameraTransform => cameraTransform;
 
@@ -82,6 +98,7 @@ public class Player_Camera_Controller : MonoBehaviour
             return;
         }
 
+        viewCamera = cameraTransform.GetComponent<Camera>();
         float initialDistance = Mathf.Clamp(offset.magnitude, minZoomDistance, maxZoomDistance);
         targetZoomDistance = initialDistance;
         currentZoomDistance = initialDistance;
@@ -97,24 +114,38 @@ public class Player_Camera_Controller : MonoBehaviour
         if (cameraTransform == null)
             return;
 
-        if (input != null)
-            lookInput = input.Look;
+        lookInput = input != null && input.IsGameplayInputEnabled ? input.Look : Vector2.zero;
 
-        HandleZoom();
+        bool aiming=SkillClient.IsAiming || SkillClient.IsJudgementPending || GetComponent<PlayerSkillView>()?.IsGreatswordQ == true;
+        if(aiming&&!wasSkillAiming){aimYaw=transform.eulerAngles.y;aimPitch=12f;cameraAction?.CancelAction();}
+        if(!aiming&&wasSkillAiming){yaw=aimYaw;pitch=aimPitch;}
+        wasSkillAiming=aiming;aimWeight=Mathf.MoveTowards(aimWeight,aiming?1:0,Time.unscaledDeltaTime*6);
+        if(!aiming)HandleZoom();
 
-        if (ShouldUseLockOnCamera())
+        if (aiming)
+            HandleAimLook();
+        else if (ShouldUseLockOnCamera())
             HandleLockOnLook();
         else
             HandleLook();
 
+        lockOnWeight = Mathf.Lerp(lockOnWeight, ShouldUseLockOnCamera() ? 1f : 0f,
+            1f - Mathf.Exp(-lockOnBlendSpeed * Time.deltaTime));
         HandleFollow();
     }
 
     private void HandleLook()
     {
-        yaw += lookInput.x * lookSensitivity;
-        pitch -= lookInput.y * lookSensitivity;
+        yaw += lookInput.x * lookSensitivity * GameOptions.Sensitivity;
+        pitch -= lookInput.y * lookSensitivity * GameOptions.Sensitivity;
         pitch = Mathf.Clamp(pitch, angleLock.x, angleLock.y);
+    }
+
+    private void HandleAimLook()
+    {
+        aimYaw += lookInput.x * lookSensitivity * GameOptions.Sensitivity;
+        // Keep the targeting ray below the horizon, including at maximum cast range.
+        aimPitch = Mathf.Clamp(aimPitch - lookInput.y * lookSensitivity * GameOptions.Sensitivity, 5f, 75f);
     }
 
     private void HandleZoom()
@@ -140,27 +171,24 @@ public class Player_Camera_Controller : MonoBehaviour
 
     private void HandleLockOnLook()
     {
-        Vector3 pivotPosition = transform.position + pivotOffset;
-        Vector3 targetPosition = lockOnSystem.CurrentTarget.position + lockOnTargetOffset;
-        Vector3 toTarget = targetPosition - pivotPosition;
-
-        if (toTarget.sqrMagnitude <= 0.001f)
-            return;
-
-        Quaternion targetRotation = Quaternion.LookRotation(toTarget.normalized, Vector3.up);
-        Vector3 targetEuler = targetRotation.eulerAngles;
-        float targetYaw = targetEuler.y;
-        float targetPitch = ClampPitch(targetEuler.x);
+        Vector3 toTarget = lockOnSystem.TargetAimPosition - (transform.position + pivotOffset);
+        Vector3 horizontal = Vector3.ProjectOnPlane(toTarget, Vector3.up);
         float t = 1f - Mathf.Exp(-lockOnRotationLerp * Time.deltaTime);
-
-        yaw = Mathf.LerpAngle(yaw, targetYaw, t);
-        pitch = Mathf.LerpAngle(pitch, targetPitch, t);
-        pitch = Mathf.Clamp(pitch, angleLock.x, angleLock.y);
+        // Do not spin 180 degrees when actors cross or overlap during a roll.
+        if (horizontal.sqrMagnitude > closeTargetDeadZone * closeTargetDeadZone)
+        {
+            float targetYaw = Mathf.Atan2(horizontal.x, horizontal.z) * Mathf.Rad2Deg;
+            float delta = Mathf.DeltaAngle(yaw, targetYaw) * t;
+            yaw += Mathf.Clamp(delta, -lockOnMaxYawSpeed * Time.deltaTime, lockOnMaxYawSpeed * Time.deltaTime);
+        }
+        float elevation = Mathf.Atan2(toTarget.y, horizontal.magnitude + currentZoomDistance) * Mathf.Rad2Deg;
+        float desiredPitch = Mathf.Clamp(lockOnPitch - elevation, angleLock.x, Mathf.Min(35f, angleLock.y));
+        pitch = Mathf.Lerp(pitch, desiredPitch, t);
     }
 
     private bool ShouldUseLockOnCamera()
     {
-        return lockOnControlsCamera &&
+        return !wasSkillAiming && lockOnControlsCamera &&
                lockOnSystem != null &&
                lockOnSystem.IsLockedOn &&
                lockOnSystem.CurrentTarget != null;
@@ -168,38 +196,52 @@ public class Player_Camera_Controller : MonoBehaviour
 
     private void HandleFollow()
     {
-        Quaternion rotation = Quaternion.Euler(pitch, yaw, 0f);
+        Quaternion rotation = Quaternion.Slerp(Quaternion.Euler(pitch,yaw,0),Quaternion.Euler(aimPitch,aimYaw,0),aimWeight);
+        float effectiveLockWeight = lockOnWeight * (1f - aimWeight);
 
-        Vector3 camDir = (rotation * offset).normalized;
+        Vector3 freeDirection = offset.sqrMagnitude > .001f ? offset.normalized : Vector3.back;
+        Vector3 camDir = rotation * Vector3.Slerp(freeDirection, Vector3.back, Mathf.Max(effectiveLockWeight,aimWeight));
+        float framedZoom = Mathf.Lerp(targetZoomDistance, Mathf.Min(targetZoomDistance, lockOnMaxDistance), effectiveLockWeight);
+        framedZoom=Mathf.Lerp(framedZoom,2.2f,aimWeight);
         currentZoomDistance = Mathf.Lerp(
             currentZoomDistance,
-            targetZoomDistance,
+            framedZoom,
             1f - Mathf.Exp(-zoomLerp * Time.deltaTime)
         );
 
         float desiredDist = currentZoomDistance;
-        Vector3 pivotPosition = GetFollowPivotPosition();
+        Vector3 pivotPosition = Vector3.Lerp(GetFollowPivotPosition(),transform.position+Vector3.up*1.75f,aimWeight);
+        Vector3 targetFocusOffset = ShouldUseLockOnCamera()
+            ? Vector3.ClampMagnitude((lockOnSystem.TargetAimPosition - (transform.position + pivotOffset)) * duelFocusWeight, maxDuelFocusOffset)
+            : Vector3.zero;
+        duelFocusOffset = Vector3.Lerp(duelFocusOffset, targetFocusOffset, 1f - Mathf.Exp(-lockOnBlendSpeed * Time.deltaTime));
+        pivotPosition += duelFocusOffset * (1f - aimWeight);
+        // A focus/shoulder blend can move the cast origin into a nearby shelf or wall.
+        pivotPosition = ClampToClearSegment(transform.position + pivotOffset, pivotPosition);
         float adjustedDist = ComputeCollisionAdjustedDistance(pivotPosition, camDir, desiredDist);
 
-        Vector3 desiredPosition = pivotPosition + camDir * adjustedDist;
-        bool shouldResetPathClip =
-            !hasValidCameraPosition ||
-            Vector3.Distance(cameraTransform.position, pivotPosition) > desiredDist * pathClipResetDistanceMultiplier;
+        Vector3 desiredPosition = pivotPosition + camDir * adjustedDist + rotation * Vector3.right * (lockOnShoulderOffset * effectiveLockWeight + .22f*aimWeight);
 
-        if (shouldResetPathClip)
-        {
-            collisionDistanceCurrent = adjustedDist;
-        }
-        else if (preventPathClipping)
-        {
-            desiredPosition = PreventCameraPathClipping(cameraTransform.position, desiredPosition);
-        }
-
-        if (cameraAction != null)
+        if (effectiveLockWeight > .001f && (pivotPosition - desiredPosition).sqrMagnitude > .001f)
+            rotation = Quaternion.Slerp(rotation, Quaternion.LookRotation(pivotPosition - desiredPosition, Vector3.up), effectiveLockWeight);
+        if (cameraAction != null && aimWeight<.001f)
         {
             cameraAction.ApplyAction(ref desiredPosition, ref rotation);
         }
 
+        // Check after shakes, shoulder offsets and FOV changes, including the entire near plane.
+        Vector3 safePivot = ResolveCameraOverlap(transform.position + pivotOffset);
+        desiredPosition = ClampToClearSegment(safePivot, desiredPosition);
+        Vector3 previous = cameraTransform.position;
+        bool previousReachable = hasValidCameraPosition
+            && Vector3.Distance(previous, safePivot) <= desiredDist * pathClipResetDistanceMultiplier
+            && HasCameraClearance(previous)
+            && (ClampToClearSegment(safePivot, previous) - previous).sqrMagnitude < .0001f;
+        // A blocked/stale position must not trap the camera behind a corner after a roll/teleport.
+        if (preventPathClipping && previousReachable)
+            desiredPosition = PreventCameraPathClipping(previous, desiredPosition);
+        desiredPosition = ClampToClearSegment(safePivot, desiredPosition);
+        if (!HasCameraClearance(desiredPosition)) desiredPosition = safePivot;
         cameraTransform.rotation = rotation;
         cameraTransform.position = desiredPosition;
 
@@ -217,7 +259,7 @@ public class Player_Camera_Controller : MonoBehaviour
             return targetPivotPosition;
         }
 
-        if (!hasSmoothedPivotPosition)
+        if (!hasSmoothedPivotPosition || Vector3.Distance(smoothedPivotPosition, targetPivotPosition) > maxZoomDistance)
         {
             smoothedPivotPosition = targetPivotPosition;
             hasSmoothedPivotPosition = true;
@@ -231,67 +273,16 @@ public class Player_Camera_Controller : MonoBehaviour
 
     private Vector3 PreventCameraPathClipping(Vector3 currentPosition, Vector3 desiredPosition)
     {
-        Vector3 move = desiredPosition - currentPosition;
-        float moveDistance = move.magnitude;
-        if (moveDistance <= 0.001f)
-            return desiredPosition;
-
-        Vector3 moveDir = move / moveDistance;
-        Ray ray = new Ray(currentPosition, moveDir);
-        int hitCount = Physics.SphereCastNonAlloc(
-            ray,
-            collisionRadius,
-            collisionHits,
-            moveDistance,
-            collisionMask,
-            QueryTriggerInteraction.Ignore
-        );
-
-        float closestHitDistance = float.PositiveInfinity;
-        for (int i = 0; i < hitCount; i++)
-        {
-            Collider hitCollider = collisionHits[i].collider;
-            if (hitCollider == null || hitCollider.transform.IsChildOf(transform))
-                continue;
-
-            closestHitDistance = Mathf.Min(closestHitDistance, collisionHits[i].distance);
-        }
-
-        if (float.IsPositiveInfinity(closestHitDistance))
-            return desiredPosition;
-
-        float safeDistance = Mathf.Max(0f, closestHitDistance - collisionBuffer);
-        return currentPosition + moveDir * safeDistance;
+        return ClampToClearSegment(currentPosition, desiredPosition);
     }
 
     private float ComputeCollisionAdjustedDistance(Vector3 pivotPosition, Vector3 camDir, float desiredDist)
     {
-        float targetDist = desiredDist;
-        Ray ray = new Ray(pivotPosition, camDir);
+        float targetDist = ClearDistance(pivotPosition, camDir, desiredDist);
 
-        int hitCount = Physics.SphereCastNonAlloc(
-            ray,
-            collisionRadius,
-            collisionHits,
-            desiredDist,
-            collisionMask,
-            QueryTriggerInteraction.Ignore
-        );
-
-        float closestHitDistance = float.PositiveInfinity;
-        for (int i = 0; i < hitCount; i++)
-        {
-            Collider hitCollider = collisionHits[i].collider;
-            if (hitCollider == null || hitCollider.transform.IsChildOf(transform))
-                continue;
-
-            closestHitDistance = Mathf.Min(closestHitDistance, collisionHits[i].distance);
-        }
-
-        if (!float.IsPositiveInfinity(closestHitDistance))
-            targetDist = Mathf.Max(minDistance, closestHitDistance - collisionBuffer);
-
-        float lerpSpeed = targetDist < collisionDistanceCurrent ? collisionRetractLerp : collisionReturnLerp;
+        // Retraction must be immediate: interpolating from outside the wall leaves visible clipping.
+        if (targetDist < collisionDistanceCurrent) collisionDistanceCurrent = targetDist;
+        float lerpSpeed = collisionReturnLerp;
 
         collisionDistanceCurrent = Mathf.Lerp(
             collisionDistanceCurrent,
@@ -300,6 +291,103 @@ public class Player_Camera_Controller : MonoBehaviour
         );
 
         return collisionDistanceCurrent;
+    }
+
+    private float EffectiveCollisionRadius
+    {
+        get
+        {
+            if (viewCamera == null) return collisionRadius;
+            float halfHeight = viewCamera.nearClipPlane * Mathf.Tan(viewCamera.fieldOfView * .5f * Mathf.Deg2Rad);
+            // The sphere is centred on the camera, so include forward near-plane distance too.
+            float lensRadius = Mathf.Sqrt(viewCamera.nearClipPlane * viewCamera.nearClipPlane
+                + halfHeight * halfHeight * (1 + viewCamera.aspect * viewCamera.aspect));
+            return Mathf.Max(collisionRadius, lensRadius) + CollisionSkin;
+        }
+    }
+
+    private bool IgnoreCollision(Collider body)
+    {
+        return body == null || body.transform == transform || body.transform.IsChildOf(transform)
+            || body.GetComponentInParent<Player_State>() != null || body.GetComponentInParent<Monster_State>() != null;
+    }
+
+    private Vector3 ClampToClearSegment(Vector3 origin, Vector3 destination)
+    {
+        // SphereCast does not report an object already overlapping its starting sphere.
+        origin = ResolveCameraOverlap(origin);
+        Vector3 delta = destination - origin;
+        float length = delta.magnitude;
+        if (length < .001f) return origin;
+        return origin + delta / length * ClearDistance(origin, delta / length, length);
+    }
+
+    private float ClearDistance(Vector3 origin, Vector3 direction, float length)
+    {
+        if (length < .001f) return 0;
+        var hits = collisionHits;
+        int count = Physics.SphereCastNonAlloc(origin, EffectiveCollisionRadius, direction, hits, length, collisionMask, QueryTriggerInteraction.Ignore);
+        if (count == hits.Length) { hits = Physics.SphereCastAll(origin, EffectiveCollisionRadius, direction, length, collisionMask, QueryTriggerInteraction.Ignore); count = hits.Length; }
+        float safe = length;
+        for (int i = 0; i < count; i++)
+            if (!IgnoreCollision(hits[i].collider)) safe = Mathf.Min(safe, Mathf.Max(0f, hits[i].distance - collisionBuffer));
+        return safe;
+    }
+
+    private int Overlaps(Vector3 point, out Collider[] bodies)
+    {
+        bodies = collisionOverlaps;
+        int count = Physics.OverlapSphereNonAlloc(point, EffectiveCollisionRadius, bodies, collisionMask, QueryTriggerInteraction.Ignore);
+        if (count == bodies.Length) { bodies = Physics.OverlapSphere(point, EffectiveCollisionRadius, collisionMask, QueryTriggerInteraction.Ignore); count = bodies.Length; }
+        return count;
+    }
+
+    private bool HasCameraClearance(Vector3 point)
+    {
+        int count = Overlaps(point, out var bodies);
+        for (int i = 0; i < count; i++) if (!IgnoreCollision(bodies[i])) return false;
+        return true;
+    }
+
+    private Vector3 ResolveCameraOverlap(Vector3 point)
+    {
+        for (int iteration = 0; iteration < 12; iteration++)
+        {
+            int count = Overlaps(point, out var bodies);
+            bool moved = false;
+            for (int i = 0; i < count; i++)
+            {
+                var body = bodies[i];
+                if (IgnoreCollision(body)) continue;
+                if (collisionProbe == null)
+                {
+                    var probe = new GameObject("Camera clearance probe") { hideFlags = HideFlags.HideAndDontSave, layer = 2 };
+                    // Enabled only during the synchronous query, never during a physics step.
+                    collisionProbe = probe.AddComponent<SphereCollider>();
+                    collisionProbe.isTrigger = true;
+                    collisionProbe.enabled = false;
+                }
+                collisionProbe.radius = EffectiveCollisionRadius;
+                collisionProbe.enabled = true;
+                try
+                {
+                    if (!Physics.ComputePenetration(collisionProbe, point, Quaternion.identity,
+                        body, body.transform.position, body.transform.rotation, out var direction, out float distance)) continue;
+                    point += direction * (distance + CollisionSkin);
+                    moved = true;
+                }
+                finally { collisionProbe.enabled = false; }
+            }
+            if (!moved) break;
+        }
+        return point;
+    }
+
+    private void OnDestroy()
+    {
+        if (collisionProbe == null) return;
+        if (Application.isPlaying) Destroy(collisionProbe.gameObject);
+        else DestroyImmediate(collisionProbe.gameObject);
     }
 
     private float ClampPitch(float rawPitch)

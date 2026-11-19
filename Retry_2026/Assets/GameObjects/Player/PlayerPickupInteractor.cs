@@ -22,6 +22,7 @@ public class PlayerPickupInteractor : MonoBehaviour
 
     private void Update()
     {
+        if (NetworkRuntime.IsOnline) return;
         bool currentInteractInput = playerInput != null && playerInput.Interact;
         bool interactPressedThisFrame = currentInteractInput && !previousInteractInput;
         previousInteractInput = currentInteractInput;

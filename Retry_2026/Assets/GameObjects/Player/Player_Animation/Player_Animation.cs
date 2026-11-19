@@ -26,16 +26,24 @@ public class Player_Animation : MonoBehaviour
     private bool wasInAttackState;
     private bool wasInHitState;
     private int currentComboIndex;
+    private PlayerDefenseController defense;
+    private bool deathPlayed;
 
+    private bool abControlledSpeed;
     public bool IsAttacking => animator != null && IsInAttackState();
     public bool IsHit => animator != null && IsInHitState();
 
     private void Awake()
     {
+        defense = GetComponent<PlayerDefenseController>();
         if (animator == null)
         {
             animator = GetComponent<Animator>();
         }
+
+        // CharacterController owns movement/facing. Imported sword root motion must
+        // not rotate the actor away from the aim sent by LocalPlayerAttackSender.
+        if (animator != null) animator.applyRootMotion = false;
 
         if (playerMovement == null)
         {
@@ -52,10 +60,24 @@ public class Player_Animation : MonoBehaviour
             playerState = GetComponent<Player_State>();
         }
 
+        if (playerAttack != null) playerAttack.EquippedWeaponChanged += OnWeaponChanged;
         blendHash = Animator.StringToHash(blendParameterName);
         crouchAnimSpeedHash = Animator.StringToHash(crouchAnimSpeedParameterName);
         crouchWalkStateHash = Animator.StringToHash(crouchWalkStateName);
         locomotionStateHash = Animator.StringToHash("Blend Tree");
+    }
+
+    private void OnDestroy()
+    {
+        if (playerAttack != null) playerAttack.EquippedWeaponChanged -= OnWeaponChanged;
+    }
+
+    private void OnWeaponChanged(string id)
+    {
+        currentComboIndex = 0;
+        wasInAttackState = false;
+        if (animator != null && IsInAttackState() && !PlayerSkillView.Busy(gameObject))
+            animator.CrossFadeInFixedTime("Blend Tree", .08f, 0, 0);
     }
 
     private void Update()
@@ -65,8 +87,20 @@ public class Player_Animation : MonoBehaviour
             return;
         }
 
+        if(ABClient.Active!=null && ABClient.Active.Supported){
+            animator.speed=(ABClient.Active.State.statusMask&4)!=0?1:IsAttacking?ABClient.Active.State.attackSpeed:1f;abControlledSpeed=true;
+        }else if(abControlledSpeed){animator.speed=1f;abControlledSpeed=false;}
         animator.SetFloat(blendHash, playerMovement.CurrentSpeed, blendDampTime, Time.deltaTime);
-        UpdateCrouchState();
+        if(playerState!=null && playerState.IsDead)
+        {
+            if(!deathPlayed)
+            {
+                deathPlayed=true; isPlayingCrouch=false; currentComboIndex=0;
+                defense?.CancelDefense(); playerAttack?.CancelCurrentAttack();
+                if(animator.HasState(0,Animator.StringToHash("Die"))) animator.CrossFadeInFixedTime("Die",.08f,0,0);
+            }
+            return;
+        }
         UpdateHitState();
         PlayPendingHit();
 
@@ -76,6 +110,7 @@ public class Player_Animation : MonoBehaviour
         }
 
         UpdateAttackState();
+        if ((defense == null || !defense.IsBusy) && !IsInAttackState()) UpdateCrouchState();
         PlayPendingAttack();
     }
 
@@ -189,6 +224,7 @@ public class Player_Animation : MonoBehaviour
 
     private void PlayPendingAttack()
     {
+        if(PlayerSkillView.Busy(gameObject) || (defense!=null && defense.IsBusy))return;
         if (playerAttack == null)
         {
             return;

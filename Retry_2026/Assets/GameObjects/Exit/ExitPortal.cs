@@ -1,4 +1,4 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using UnityEngine.Events;
 using System.Collections.Generic;
 using System;
@@ -23,13 +23,13 @@ public class ExitPortal : MonoBehaviour
 
     private bool used;
 
-    // ¦¡¦¡ ¼­¹ö ±ÇÀ§ Å»Ãâ ¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡¦¡
-    // ³×Æ®¿öÅ© ¼¼¼Ç¿¡ ¿¬°áµÈ °æ¿ì ·ÎÄÃ¿¡¼­ Å»ÃâÀ» È®Á¤ÇÏÁö ¾Ê´Â´Ù.
-    // È¦µå°¡ ³¡³ª¸é ¼­¹ö¿¡ ¿äÃ»¸¸ º¸³»°í EXTRACTION_RESULT¸¦ ±â´Ù¸°´Ù.
+    // â”€â”€ ì„œë²„ ê¶Œìœ„ íƒˆì¶œ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+    // ë„¤íŠ¸ì›Œí¬ ì„¸ì…˜ì— ì—°ê²°ëœ ê²½ìš° ë¡œì»¬ì—ì„œ íƒˆì¶œì„ í™•ì •í•˜ì§€ ì•ŠëŠ”ë‹¤.
+    // í™€ë“œê°€ ëë‚˜ë©´ ì„œë²„ì— ìš”ì²­ë§Œ ë³´ë‚´ê³  EXTRACTION_RESULTë¥¼ ê¸°ë‹¤ë¦°ë‹¤.
     [Header("Network")]
     [SerializeField] private int extractionPointId;
     private NetworkBootstrap bootstrap;
-    private Player awaitingPlayer;      // ¼­¹ö ÀÀ´ä ´ë±â ÁßÀÎ ÇÃ·¹ÀÌ¾î
+    private Player awaitingPlayer;      // ì„œë²„ ì‘ë‹µ ëŒ€ê¸° ì¤‘ì¸ í”Œë ˆì´ì–´
     private readonly Dictionary<Player, HoldState> holdStates = new Dictionary<Player, HoldState>();
     private readonly List<Player> playersToRemove = new List<Player>();
 
@@ -37,6 +37,16 @@ public class ExitPortal : MonoBehaviour
     public event Action<Player, float> HoldProgressChanged;
     public event Action<Player> HoldCanceled;
     public event Action<Player> MissingRequiredKey;
+
+    private void Start()
+    {
+        foreach (var renderer in GetComponentsInChildren<Renderer>(true))
+        {
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+        }
+        foreach (var light in GetComponentsInChildren<Light>(true)) light.shadows = LightShadows.None;
+    }
 
     private void Awake()
     {
@@ -54,13 +64,14 @@ public class ExitPortal : MonoBehaviour
 
     private void OnDestroy()
     {
+        foreach (var state in holdStates.Values) state.Unsubscribe();
         if (bootstrap != null)
         {
             bootstrap.ExtractionResultReceived -= OnExtractionResult;
         }
     }
 
-    // ¼­¹ö°¡ ÆÇÁ¤ÇÑ Å»Ãâ °á°ú. ¼º°øÀÏ ¶§¸¸ ½ÇÁ¦ Å»Ãâ Ã³¸®.
+    // ì„œë²„ê°€ íŒì •í•œ íƒˆì¶œ ê²°ê³¼. ì„±ê³µì¼ ë•Œë§Œ ì‹¤ì œ íƒˆì¶œ ì²˜ë¦¬.
     private void OnExtractionResult(ExtractionResult result)
     {
         Player player = awaitingPlayer;
@@ -69,7 +80,7 @@ public class ExitPortal : MonoBehaviour
 
         if (result.success != 1)
         {
-            // °ÅºÎµÊ ¡æ È¦µå ¸®¼Â. °è¼Ó ¼­ ÀÖÀ¸¸é Àç½ÃµµµÈ´Ù.
+            // ê±°ë¶€ë¨ â†’ í™€ë“œ ë¦¬ì…‹. ê³„ì† ì„œ ìˆìœ¼ë©´ ì¬ì‹œë„ëœë‹¤.
             InvokeHoldProgressChanged(player, 0f);
             InvokeHoldCanceled(player);
             return;
@@ -78,7 +89,7 @@ public class ExitPortal : MonoBehaviour
         CompleteEscape(player);
     }
 
-    // Å»Ãâ È®Á¤ (¿ÀÇÁ¶óÀÎÀÌ°Å³ª ¼­¹ö ½ÂÀÎ ÈÄ).
+    // íƒˆì¶œ í™•ì • (ì˜¤í”„ë¼ì¸ì´ê±°ë‚˜ ì„œë²„ ìŠ¹ì¸ í›„).
     private void CompleteEscape(Player player)
     {
         if (exitManager == null) return;
@@ -92,7 +103,7 @@ public class ExitPortal : MonoBehaviour
         }
     }
 
-    // º»ÀÎ Ä³¸¯ÅÍÀÎÁö (¿ø°İ ÇÃ·¹ÀÌ¾î°¡ Æ÷Å»¿¡ µé¾î¿Íµµ ¿äÃ»ÇÏÁö ¾Êµµ·Ï).
+    // ë³¸ì¸ ìºë¦­í„°ì¸ì§€ (ì›ê²© í”Œë ˆì´ì–´ê°€ í¬íƒˆì— ë“¤ì–´ì™€ë„ ìš”ì²­í•˜ì§€ ì•Šë„ë¡).
     private bool IsLocalPlayer(Player player)
     {
         if (bootstrap == null || bootstrap.LocalPlayer == null) return false;
@@ -164,6 +175,12 @@ public class ExitPortal : MonoBehaviour
                 continue;
             }
 
+            if (state.waitForRelease)
+            {
+                if (!state.input.Interact) state.waitForRelease = false;
+                continue;
+            }
+
             if (!state.input.Interact)
             {
                 if (state.timer > 0f)
@@ -227,7 +244,23 @@ public class ExitPortal : MonoBehaviour
             return;
         }
 
-        holdStates.Add(player, new HoldState(input));
+        var hold = new HoldState(input);
+        holdStates.Add(player, hold);
+        hold.health = player.GetComponent<Player_State>();
+        if (hold.health != null)
+        {
+            hold.lastHp = hold.health.CurrentHp;
+            hold.healthChanged = (hp, maximum) =>
+            {
+                bool damaged = hp < hold.lastHp;
+                hold.lastHp = hp;
+                if (!damaged) return;
+                hold.timer = 0f; hold.nextCountdownSecond = 0; hold.waitForRelease = true;
+                InvokeHoldProgressChanged(player, 0f);
+                InvokeHoldCanceled(player);
+            };
+            hold.health.HpChanged += hold.healthChanged;
+        }
         InvokeHoldProgressChanged(player, 0f);
     }
 
@@ -245,16 +278,16 @@ public class ExitPortal : MonoBehaviour
             return;
         }
 
-        // ³×Æ®¿öÅ© ¼¼¼ÇÀÌ¸é ¼­¹ö ÆÇÁ¤¿¡ ¸Ã±ä´Ù (À§Ä¡/Ã¼·ù½Ã°£ Àç°ËÁõ).
+        // ë„¤íŠ¸ì›Œí¬ ì„¸ì…˜ì´ë©´ ì„œë²„ íŒì •ì— ë§¡ê¸´ë‹¤ (ìœ„ì¹˜/ì²´ë¥˜ì‹œê°„ ì¬ê²€ì¦).
         if (bootstrap != null && bootstrap.Session != null && bootstrap.Session.IsConnected)
         {
-            if (!IsLocalPlayer(player)) return;   // ¿ø°İ Ä³¸¯ÅÍ´Â ¿äÃ»ÇÏÁö ¾ÊÀ½
+            if (!IsLocalPlayer(player)) return;   // ì›ê²© ìºë¦­í„°ëŠ” ìš”ì²­í•˜ì§€ ì•ŠìŒ
             awaitingPlayer = player;
             bootstrap.RequestExtraction(extractionPointId);
             return;
         }
 
-        // ¿ÀÇÁ¶óÀÎ(´Üµ¶ Å×½ºÆ®) °æ·Î: ±âÁ¸´ë·Î Áï½Ã È®Á¤.
+        // ì˜¤í”„ë¼ì¸(ë‹¨ë… í…ŒìŠ¤íŠ¸) ê²½ë¡œ: ê¸°ì¡´ëŒ€ë¡œ ì¦‰ì‹œ í™•ì •.
         CompleteEscape(player);
     }
 
@@ -330,6 +363,7 @@ public class ExitPortal : MonoBehaviour
 
         if (player != null)
         {
+            if (holdStates.TryGetValue(player, out var state)) state.Unsubscribe();
             holdStates.Remove(player);
         }
     }
@@ -372,6 +406,11 @@ public class ExitPortal : MonoBehaviour
     {
         public readonly Defalult_Input input;
         public float timer;
+        public bool waitForRelease;
+        public Player_State health;
+        public int lastHp;
+        public Action<int, int> healthChanged;
+        public void Unsubscribe() { if (health != null && healthChanged != null) health.HpChanged -= healthChanged; }
         public int nextCountdownSecond = -1;
 
         public HoldState(Defalult_Input input)

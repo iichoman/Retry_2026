@@ -1,10 +1,10 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 
 // ============================================================================
 //  LocalIdentity
-//  º»ÀÎ Å¬¶óÀÌ¾ğÆ®ÀÇ ID¿Í »óÅÂ¸¦ º¸°üÇÏ´Â ´ÜÀÏ ±Û·Î¹ú °´Ã¼.
-//  ¾À ¾îµğ¼­µç LocalIdentity.Instance.LocalClientId ½ÄÀ¸·Î Á¢±Ù.
-//  NetworkBootstrapÀÌ ÀÚµ¿À¸·Î »ı¼º/°ü¸®.
+//  ë³¸ì¸ í´ë¼ì´ì–¸íŠ¸ì˜ IDì™€ ìƒíƒœë¥¼ ë³´ê´€í•˜ëŠ” ë‹¨ì¼ ê¸€ë¡œë²Œ ê°ì²´.
+//  ì”¬ ì–´ë””ì„œë“  LocalIdentity.Instance.LocalClientId ì‹ìœ¼ë¡œ ì ‘ê·¼.
+//  NetworkBootstrapì´ ìë™ìœ¼ë¡œ ìƒì„±/ê´€ë¦¬.
 // ============================================================================
 public class LocalIdentity : MonoBehaviour
 {
@@ -26,7 +26,7 @@ public class LocalIdentity : MonoBehaviour
             return;
         }
         Instance = this;
-        // DontDestroyOnLoad´Â root GameObject¿¡¸¸ µ¿ÀÛ. ÀÚ½ÄÀÌ¸é ½ºÅµ.
+        // DontDestroyOnLoadëŠ” root GameObjectì—ë§Œ ë™ì‘. ìì‹ì´ë©´ ìŠ¤í‚µ.
         if (transform.parent == null)
             DontDestroyOnLoad(gameObject);
     }
@@ -34,7 +34,7 @@ public class LocalIdentity : MonoBehaviour
     public void SetLocalClientId(int id)
     {
         LocalClientId = id;
-        Debug.Log($"[LocalIdentity] LocalClientId ¼³Á¤µÊ = {id}");
+        Debug.Log($"[LocalIdentity] LocalClientId ì„¤ì •ë¨ = {id}");
     }
 
     public void SetPlayerName(string name)

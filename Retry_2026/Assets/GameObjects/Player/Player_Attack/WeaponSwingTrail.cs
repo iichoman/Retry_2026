@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using UnityEngine;
 
 [DisallowMultipleComponent]
+[DefaultExecutionOrder(400)]
 [RequireComponent(typeof(MeshFilter), typeof(MeshRenderer))]
 public class WeaponSwingTrail : MonoBehaviour
 {
@@ -31,9 +32,18 @@ public class WeaponSwingTrail : MonoBehaviour
     [SerializeField] private Color edgeColor = new Color(1f, 0.46f, 0.06f, 0.24f);
 
     private readonly List<BladeSample> samples = new List<BladeSample>(32);
+    private readonly List<BladeSample> smoothedSamples = new List<BladeSample>(256);
+    private readonly List<Vector3> vertices = new List<Vector3>(512);
+    private readonly List<Vector2> uvs = new List<Vector2>(512);
+    private readonly List<Color32> colors = new List<Color32>(512);
+    private readonly List<int> triangles = new List<int>(1536);
     private Mesh trailMesh;
     private float nextSampleTime;
     private bool emitting;
+    private bool serverSwing;
+    private float serverEndTime;
+    private float serverStartTime;
+    private bool serverStarted;
 
     private void Awake()
     {
@@ -43,6 +53,7 @@ public class WeaponSwingTrail : MonoBehaviour
 
     private void OnEnable()
     {
+        if(elementalFx!=null)elementalFx.SetActive(true);
         Configure();
     }
 
@@ -52,8 +63,78 @@ public class WeaponSwingTrail : MonoBehaviour
         BuildMesh();
     }
 
+    private GameObject elementalFx;
+    private int elementHash;
+    private ABActorView abActor;
+    private Transform abWeapon;
+    private bool abScaleKnown;
+    private Renderer[] abWeaponRenderers;
+    private bool[] abRendererEnabled;
+    private Material[][] originalWeaponMaterials;
+    private bool iceTrail;
+    private MaterialPropertyBlock iceTint;
+    private void UpdateElement(){
+        if(abActor==null)abActor=GetComponentInParent<ABActorView>();
+        int hash=abActor!=null ? abActor.WeaponHash : 0;
+        if(hash==0&&!NetworkRuntime.IsOnline){var item=GetComponentInParent<PlayerEquipment>()?.GetEquippedItem(EquipmentSlotType.Weapon);if(item!=null)hash=ItemHash.Of(item.ItemId);}
+        if(!abScaleKnown && GetComponentInParent<Weapon_Sword>() is var sword && sword!=null){
+            abWeapon=sword.transform;abScaleKnown=true;
+            abWeaponRenderers=abWeapon.GetComponentsInChildren<Renderer>(true);abRendererEnabled=new bool[abWeaponRenderers.Length];
+            originalWeaponMaterials=new Material[abWeaponRenderers.Length][];
+            for(int i=0;i<abWeaponRenderers.Length;i++){abRendererEnabled[i]=abWeaponRenderers[i].enabled;originalWeaponMaterials[i]=abWeaponRenderers[i].sharedMaterials;}
+        }
+        if(abScaleKnown && abActor!=null)abActor.ScaleWeapon(abWeapon);
+        if(hash!=elementHash){
+            string skinId=ABItemDefinitions.Find(hash)?.id;
+            var skin=skinId==null?null:Resources.Load<Material>("AB/WeaponSkins/"+skinId);
+            if(abWeaponRenderers!=null)for(int i=0;i<abWeaponRenderers.Length;i++){
+                var renderer=abWeaponRenderers[i];
+                if(renderer==null||renderer==meshRenderer||!(renderer is MeshRenderer || renderer is SkinnedMeshRenderer))continue;
+                var materials=(Material[])originalWeaponMaterials[i].Clone();
+                if(skin!=null)for(int j=0;j<materials.Length;j++)materials[j]=skin;
+                renderer.sharedMaterials=materials;
+            }
+            if(elementalFx!=null)Destroy(elementalFx);elementHash=hash;
+            if(abWeaponRenderers!=null)for(int i=0;i<abWeaponRenderers.Length;i++){
+                var r=abWeaponRenderers[i];if(r!=null && r!=meshRenderer && !(r is ParticleSystemRenderer) && !(r is TrailRenderer) && !(r is LineRenderer))r.enabled=hash!=ItemHash.Of("beam_sword") && abRendererEnabled[i];
+            }
+            int element = ABItemDefinitions.Find(hash)?.WeaponElement ?? 0;
+            iceTrail = element == 2;
+            if(meshRenderer!=null){
+                if(iceTrail){
+                    if(iceTint==null)iceTint=new MaterialPropertyBlock();
+                    float opacity=trailMaterial!=null&&trailMaterial.HasProperty("_BaseColor")?trailMaterial.GetColor("_BaseColor").a:1;
+                    iceTint.SetColor("_BaseColor",new Color(1,1,1,opacity));
+                }
+                meshRenderer.SetPropertyBlock(iceTrail?iceTint:null);
+            }
+            if(iceTrail)StopParticles(); // The ice prefab supplies matching frost particles.
+            string resource = element == 1 ? "Flame" : element == 2 ? "Ice" : element == 3 ? "Beam" : null;
+            if(resource!=null){var prefab=Resources.Load<GameObject>("AB/"+resource);if(prefab!=null)elementalFx=Instantiate(prefab,abActor!=null?abActor.transform:transform.root);}
+        }
+        if(elementalFx!=null && bladeBase!=null && bladeTip!=null){
+            elementalFx.transform.SetPositionAndRotation(bladeBase.position,Quaternion.LookRotation((bladeTip.position-bladeBase.position).normalized));
+            var line=elementalFx.GetComponent<LineRenderer>();line.SetPosition(0,bladeBase.position);line.SetPosition(1,bladeTip.position);
+            var core=elementalFx.transform.Find("Beam Core");
+            if(core!=null){float length=Vector3.Distance(bladeBase.position,bladeTip.position);core.localPosition=new Vector3(0,0,length*.5f);core.localScale=new Vector3(.035f,length*.5f,.035f);}
+            var particles=elementalFx.GetComponent<ParticleSystem>();
+            if(particles!=null){var shape=particles.shape;shape.shapeType=ParticleSystemShapeType.Box;float length=Vector3.Distance(bladeBase.position,bladeTip.position);shape.position=new Vector3(0,0,length*.5f);shape.scale=new Vector3(.04f,.04f,length);}
+        }
+    }
     private void LateUpdate()
     {
+        UpdateElement();
+        if (serverSwing && !serverStarted && Time.unscaledTime >= serverStartTime && Time.unscaledTime < serverEndTime)
+        {
+            serverStarted = true;
+            BeginTrail();
+        }
+        if (serverSwing && Time.unscaledTime >= serverEndTime)
+        {
+            serverSwing = false;
+            emitting = false;
+            StopParticles();
+        }
         UpdateSamples();
 
         if (emitting && Time.time >= nextSampleTime)
@@ -67,6 +148,7 @@ public class WeaponSwingTrail : MonoBehaviour
 
     public void BeginTrail()
     {
+        // Swing ribbon is cosmetic prediction. Online hit/damage remains server-owned.
         Configure();
         ClearTrail();
         emitting = true;
@@ -75,10 +157,39 @@ public class WeaponSwingTrail : MonoBehaviour
         PlayParticles();
     }
 
+    public void CancelSwing(){serverSwing=false;serverStarted=false;EndTrail();ClearTrail();}
     public void EndTrail()
     {
+        if (NetworkRuntime.IsOnline && serverSwing) return;
         emitting = false;
         StopParticles();
+    }
+
+    /// <summary>Only call in response to an accepted PLAYER_ATTACK_BROADCAST.</summary>
+    public void PlayServerSwing(float duration = 0.28f, float delay = 0f)
+    {
+        serverSwing = true;
+        serverStarted = false;
+        emitting = false;
+        StopParticles();
+        ClearTrail();
+        serverStartTime = Time.unscaledTime + Mathf.Max(0f, delay);
+        serverEndTime = serverStartTime + Mathf.Clamp(duration, 0.05f, 1.0f);
+    }
+
+    private void OnDisable()
+    {
+        if(elementalFx!=null)elementalFx.SetActive(false);
+        serverSwing = false;
+        emitting = false;
+        StopParticles();
+        ClearTrail();
+    }
+
+    private void OnDestroy()
+    {
+        if(elementalFx!=null)Destroy(elementalFx);
+        if (trailMesh != null) Destroy(trailMesh);
     }
 
     private void Configure()
@@ -133,7 +244,7 @@ public class WeaponSwingTrail : MonoBehaviour
             BladeSample sample = samples[i];
             sample.Age += deltaTime;
 
-            if (!emitting && sample.Age >= trailDuration)
+            if (sample.Age >= trailDuration)
             {
                 samples.RemoveAt(i);
                 continue;
@@ -193,51 +304,41 @@ public class WeaponSwingTrail : MonoBehaviour
             return;
         }
 
-        int vertexCount = renderSamples.Count * 2;
-        var vertices = new Vector3[vertexCount];
-        var uvs = new Vector2[vertexCount];
-        var colors = new Color32[vertexCount];
-        var triangles = new int[(renderSamples.Count - 1) * 6];
+        vertices.Clear(); uvs.Clear(); colors.Clear(); triangles.Clear();
 
         for (int i = 0; i < renderSamples.Count; i++)
         {
             float normalizedAge = Mathf.Clamp01(renderSamples[i].Age / Mathf.Max(0.001f, trailDuration));
             float alpha = Mathf.Clamp01(alphaOverLifetime.Evaluate(normalizedAge));
             float u = i / (float)(renderSamples.Count - 1);
-            int baseIndex = i * 2;
-
-            vertices[baseIndex] = transform.InverseTransformPoint(renderSamples[i].BasePosition);
-            vertices[baseIndex + 1] = transform.InverseTransformPoint(renderSamples[i].TipPosition);
-            uvs[baseIndex] = new Vector2(u, 0f);
-            uvs[baseIndex + 1] = new Vector2(u, 1f);
+            vertices.Add(transform.InverseTransformPoint(renderSamples[i].BasePosition));
+            vertices.Add(transform.InverseTransformPoint(renderSamples[i].TipPosition));
+            uvs.Add(new Vector2(u, 0f));
+            uvs.Add(new Vector2(u, 1f));
 
             Color root = edgeColor;
             Color tip = baseColor;
+            if(iceTrail){var tint=SkillPalette.ForWeapon(elementHash);root=new Color(tint.r,tint.g,tint.b,edgeColor.a);tip=new Color(tint.r,tint.g,tint.b,baseColor.a);}
             root.a *= alpha;
             tip.a *= alpha;
-            colors[baseIndex] = root;
-            colors[baseIndex + 1] = tip;
+            colors.Add(root);
+            colors.Add(tip);
         }
 
-        int triangleIndex = 0;
         for (int i = 0; i < renderSamples.Count - 1; i++)
         {
             int current = i * 2;
             int next = current + 2;
 
-            triangles[triangleIndex++] = current;
-            triangles[triangleIndex++] = next;
-            triangles[triangleIndex++] = current + 1;
-            triangles[triangleIndex++] = current + 1;
-            triangles[triangleIndex++] = next;
-            triangles[triangleIndex++] = next + 1;
+            triangles.Add(current); triangles.Add(next); triangles.Add(current + 1);
+            triangles.Add(current + 1); triangles.Add(next); triangles.Add(next + 1);
         }
 
         trailMesh.Clear();
-        trailMesh.vertices = vertices;
-        trailMesh.uv = uvs;
-        trailMesh.colors32 = colors;
-        trailMesh.triangles = triangles;
+        trailMesh.SetVertices(vertices);
+        trailMesh.SetUVs(0, uvs);
+        trailMesh.SetColors(colors);
+        trailMesh.SetTriangles(triangles, 0);
         trailMesh.RecalculateBounds();
 
         if (meshRenderer != null)
@@ -268,7 +369,8 @@ public class WeaponSwingTrail : MonoBehaviour
             return samples;
         }
 
-        var renderSamples = new List<BladeSample>(samples.Count * smoothingSteps);
+        var renderSamples = smoothedSamples;
+        renderSamples.Clear();
         for (int i = 0; i < samples.Count - 1; i++)
         {
             BladeSample previous = samples[Mathf.Max(0, i - 1)];
@@ -305,7 +407,7 @@ public class WeaponSwingTrail : MonoBehaviour
 
     private void PlayParticles()
     {
-        if (sparkParticles == null)
+        if (sparkParticles == null || iceTrail)
         {
             return;
         }
